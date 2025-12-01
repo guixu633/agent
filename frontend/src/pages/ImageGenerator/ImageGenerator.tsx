@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { imageService } from '@/services/image/imageService';
 import type { ImageGenerateResponse } from '@/types/image';
 import './ImageGenerator.css';
@@ -9,6 +9,23 @@ export function ImageGenerator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerateResponse | null>(null);
+  
+  // 计时器状态
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const timerRef = useRef<number | null>(null);
+
+  // 清除计时器
+  const clearTimer = () => {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => clearTimer();
+  }, []);
 
   // 处理文件选择
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,6 +51,12 @@ export function ImageGenerator() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setElapsedTime(0);
+
+    // 启动计时器
+    timerRef.current = window.setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
 
     try {
       // 转换文件为 Base64
@@ -50,7 +73,13 @@ export function ImageGenerator() {
       setError(err instanceof Error ? err.message : '生成失败，请重试');
     } finally {
       setLoading(false);
+      clearTimer();
     }
+  };
+
+  // 格式化时间
+  const formatTime = (seconds: number) => {
+    return `${seconds}s`;
   };
 
   return (
@@ -118,7 +147,7 @@ export function ImageGenerator() {
             disabled={loading || !prompt.trim()}
             className="submit-btn"
           >
-            {loading ? '生成中...' : '生成图片'}
+            {loading ? `生成中 (${formatTime(elapsedTime)})...` : '生成图片'}
           </button>
         </form>
 
