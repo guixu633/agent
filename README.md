@@ -78,9 +78,9 @@ make test
 make build
 ```
 
-### 手动启动
+> 💡 详细的使用指南请参考 [QUICKSTART.md](./QUICKSTART.md)
 
-详细部署说明请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
+### 手动启动
 
 **后端：**
 ```bash
