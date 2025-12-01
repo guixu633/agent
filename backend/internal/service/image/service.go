@@ -52,26 +52,32 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 
 	// 解析响应
 	result := &model.ImageGenerateResponse{
-		Images: make([]model.GeneratedImage, 0),
+		Parts: make([]model.GeneratePart, 0),
 	}
 
 	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
 		return nil, fmt.Errorf("模型未返回任何内容")
 	}
 
-	// 提取文本和图片
+	// 按顺序提取内容
 	for _, part := range resp.Candidates[0].Content.Parts {
-		// 文本描述
-		if part.Text != "" {
-			result.Description = part.Text
+		// 1. 处理文本
+		if text := strings.TrimSpace(part.Text); text != "" {
+			result.Parts = append(result.Parts, model.GeneratePart{
+				Type: "text",
+				Text: text,
+			})
 		}
 
-		// 生成的图片
+		// 2. 处理图片
 		if part.InlineData != nil {
 			imageBase64 := base64.StdEncoding.EncodeToString(part.InlineData.Data)
-			result.Images = append(result.Images, model.GeneratedImage{
-				Data:     imageBase64,
-				MimeType: part.InlineData.MIMEType,
+			result.Parts = append(result.Parts, model.GeneratePart{
+				Type: "image",
+				Image: &model.GeneratedImage{
+					Data:     imageBase64,
+					MimeType: part.InlineData.MIMEType,
+				},
 			})
 		}
 	}

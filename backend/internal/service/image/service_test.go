@@ -29,13 +29,15 @@ func TestGenerateImage(t *testing.T) {
 		resp, err := service.GenerateImage(context.Background(), req)
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		
+
 		// 打印结果
-		if resp.Description != "" {
-			t.Logf("描述: %s", resp.Description)
-		}
-		if len(resp.Images) > 0 {
-			t.Logf("生成了 %d 张图片", len(resp.Images))
+		for i, part := range resp.Parts {
+			t.Logf("Part %d (%s):", i, part.Type)
+			if part.Type == "text" {
+				t.Logf("  Text: %s", part.Text)
+			} else if part.Type == "image" {
+				t.Logf("  Image: %s, Size: %d", part.Image.MimeType, len(part.Image.Data))
+			}
 		}
 	})
 }
@@ -43,7 +45,7 @@ func TestGenerateImage(t *testing.T) {
 func initTestClient() (*genai.Client, error) {
 	configPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	if configPath == "" {
-		configPath = "../../configs/gcp/gcp.json"
+		configPath = "../../../configs/gcp/gcp.json"
 	}
 
 	os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", configPath)
@@ -54,5 +56,3 @@ func initTestClient() (*genai.Client, error) {
 		Location: "global",
 	})
 }
-
-

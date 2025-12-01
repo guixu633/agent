@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { imageService } from '@/services/image/imageService';
-import type { GeneratedImage } from '@/types/image';
+import type { ImageGenerateResponse } from '@/types/image';
 import './ImageGenerator.css';
 
 export function ImageGenerator() {
@@ -8,10 +8,7 @@ export function ImageGenerator() {
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    images: GeneratedImage[];
-    description?: string;
-  } | null>(null);
+  const [result, setResult] = useState<ImageGenerateResponse | null>(null);
 
   // 处理文件选择
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,41 +127,37 @@ export function ImageGenerator() {
           <div className="result-section">
             <h2>生成结果</h2>
             
-            {result.description && (
-              <div className="description">
-                <h3>描述</h3>
-                <p>{result.description}</p>
-              </div>
-            )}
-
-            {result.images.length > 0 && (
-              <div className="generated-images">
-                <h3>生成的图片</h3>
-                <div className="image-grid">
-                  {result.images.map((img, index) => (
-                    <div key={index} className="generated-image-item">
+            <div className="generated-content">
+              {result.parts.map((part, index) => (
+                <div key={index} className={`result-part result-part-${part.type}`}>
+                  {part.type === 'text' && (
+                    <div className="description">
+                      <p>{part.text}</p>
+                    </div>
+                  )}
+                  
+                  {part.type === 'image' && part.image && (
+                    <div className="generated-image-item">
                       <img
-                        src={`data:${img.mimeType};base64,${img.data}`}
+                        src={`data:${part.image.mimeType};base64,${part.image.data}`}
                         alt={`生成的图片 ${index + 1}`}
                         className="generated-image"
                       />
                       <a
-                        href={`data:${img.mimeType};base64,${img.data}`}
+                        href={`data:${part.image.mimeType};base64,${part.image.data}`}
                         download={`generated-${Date.now()}-${index}.png`}
                         className="download-btn"
                       >
                         下载图片
                       </a>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-
