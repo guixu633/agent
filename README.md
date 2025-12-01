@@ -6,16 +6,35 @@
 
 ```
 agent/
-├── backend/          # 后端服务 (Go)
-│   ├── configs/      # 配置文件
-│   ├── internal/     # 内部包
-│   │   └── llm/      # LLM 集成模块
-│   │       ├── claude/   # Anthropic Claude 集成
-│   │       └── gemini/   # Google Gemini 集成
+├── backend/              # 后端服务 (Go)
+│   ├── cmd/
+│   │   └── server/       # 主程序入口
+│   ├── internal/
+│   │   ├── handler/      # HTTP 处理层
+│   │   │   └── image/    # Image API handlers
+│   │   ├── service/      # 业务逻辑层
+│   │   │   └── image/    # Image 服务
+│   │   ├── model/        # 数据模型
+│   │   └── llm/          # LLM 客户端
+│   │       ├── claude/   # Anthropic Claude
+│   │       └── gemini/   # Google Gemini
+│   ├── pkg/
+│   │   └── response/     # 统一响应格式
+│   ├── configs/          # 配置文件
 │   ├── go.mod
 │   └── go.sum
-├── frontend/         # 前端应用 (待实现)
-└── README.md         # 项目说明文档
+├── frontend/             # 前端应用 (React + TypeScript)
+│   ├── src/
+│   │   ├── services/     # API 服务层
+│   │   │   └── image/    # Image API 客户端
+│   │   ├── pages/        # 页面组件
+│   │   │   └── ImageGenerator/
+│   │   ├── types/        # TypeScript 类型定义
+│   │   └── utils/        # 工具函数
+│   ├── package.json
+│   └── vite.config.ts
+├── DEPLOYMENT.md         # 部署指南
+└── README.md             # 项目说明文档
 ```
 
 ## 技术栈
@@ -28,9 +47,32 @@ agent/
 - **测试框架**: testify
 
 ### 前端
-- 待定 (可选 React / Vue / Next.js 等)
+- **框架**: React 18
+- **语言**: TypeScript
+- **构建工具**: Vite
+- **HTTP 客户端**: Axios
+- **样式**: CSS Modules
 
 ## 快速开始
+
+### 启动完整应用
+
+详细部署说明请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+**后端：**
+```bash
+cd backend
+go run cmd/server/main.go
+# 服务运行在 http://localhost:8080
+```
+
+**前端：**
+```bash
+cd frontend
+npm install
+npm run dev
+# 服务运行在 http://localhost:5173
+```
 
 ### 后端开发
 
@@ -44,8 +86,8 @@ go mod download
 # 运行测试
 go test ./...
 
-# 运行特定测试
-go test -v ./internal/llm/gemini -run TestNanoBananaImageStyle
+# 运行服务器
+go run cmd/server/main.go
 ```
 
 ### 配置文件
@@ -60,6 +102,14 @@ backend/configs/gcp/gcp.json
 ## 功能特性
 
 ### 已实现
+
+#### Image 服务 🎨
+- ✅ **AI 图片生成**：基于 Gemini 3 Pro Image Preview 模型
+- ✅ **图片编辑**：上传参考图片 + 提示词进行风格转换
+- ✅ **前后端分离架构**：RESTful API + React 前端
+- ✅ **实时预览**：生成结果即时展示和下载
+
+#### LLM 集成
 - ✅ Google Gemini 2.5 Pro 文本生成
 - ✅ Google Gemini 3 Pro 文本生成
 - ✅ Google Gemini 3 Pro Image Preview 图片处理
@@ -68,8 +118,9 @@ backend/configs/gcp/gcp.json
 - ✅ Anthropic Claude 集成
 
 ### 计划中
-- ⏳ RESTful API 服务
-- ⏳ 前端界面
+- ⏳ 更多应用服务（聊天、文档处理等）
+- ⏳ 用户认证和权限管理
+- ⏳ 历史记录和收藏功能
 - ⏳ 更多 LLM 模型支持
 
 ## 开发指南
