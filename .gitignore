@@ -1,1 +1,7 @@
 configs/gcp/gcp.json
+
+# 忽略生成的图片文件
+internal/llm/gemini/data/*.png
+
+# macOS 系统文件
+.DS_Store
