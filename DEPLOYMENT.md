@@ -1,6 +1,38 @@
 # 部署指南
 
-## 快速开始
+## 使用 Makefile（推荐）
+
+项目提供了 Makefile 来简化常用操作：
+
+```bash
+# 查看所有可用命令
+make help
+
+# 安装所有依赖
+make install
+
+# 启动开发环境（前后端同时启动）
+make dev
+
+# 分别启动服务
+make backend   # 只启动后端
+make frontend  # 只启动前端
+
+# 运行测试
+make test
+
+# 检查服务状态
+make status
+
+# 代码检查
+make lint-backend
+make lint-frontend
+
+# 构建项目
+make build
+```
+
+## 手动启动
 
 ### 1. 后端启动
 
@@ -112,4 +144,5 @@ npm run build
 2. **图片上传失败**
    - 检查图片格式（支持 PNG、JPG、JPEG）
    - 确认图片大小合理（建议 < 5MB）
+
 

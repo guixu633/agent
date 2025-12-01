@@ -18,3 +18,4 @@ type GeneratedImage struct {
 	MimeType string `json:"mimeType"` // 图片 MIME 类型
 }
 
+

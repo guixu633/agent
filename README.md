@@ -55,7 +55,30 @@ agent/
 
 ## 快速开始
 
-### 启动完整应用
+### 使用 Makefile（推荐）
+
+```bash
+# 查看所有可用命令
+make help
+
+# 安装所有依赖
+make install
+
+# 启动开发环境（前后端同时运行）
+make dev
+
+# 或者分别启动
+make backend   # 启动后端服务 (http://localhost:8080)
+make frontend  # 启动前端服务 (http://localhost:5173)
+
+# 运行测试
+make test
+
+# 构建项目
+make build
+```
+
+### 手动启动
 
 详细部署说明请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
 
