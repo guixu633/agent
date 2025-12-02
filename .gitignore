@@ -1,5 +1,5 @@
 # Backend
-backend/configs/gcp/gcp.json
+backend/configs/
 backend/internal/llm/gemini/data/*.png
 
 # macOS 系统文件
