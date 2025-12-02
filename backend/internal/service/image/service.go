@@ -24,18 +24,18 @@ const (
 
 // Service 图片服务
 type Service struct {
-	genaiClient  *genai.Client
-	ossClient    *oss.Client
-	imageRepo    repository.ImageRepository
+	genaiClient   *genai.Client
+	ossClient     *oss.Client
+	imageRepo     repository.ImageRepository
 	workspaceRepo repository.WorkspaceRepository
 }
 
 // NewService 创建图片服务实例
 func NewService(genaiClient *genai.Client, ossClient *oss.Client, imageRepo repository.ImageRepository, workspaceRepo repository.WorkspaceRepository) *Service {
 	return &Service{
-		genaiClient:  genaiClient,
-		ossClient:    ossClient,
-		imageRepo:    imageRepo,
+		genaiClient:   genaiClient,
+		ossClient:     ossClient,
+		imageRepo:     imageRepo,
 		workspaceRepo: workspaceRepo,
 	}
 }
@@ -87,6 +87,7 @@ func (s *Service) UploadImage(ctx context.Context, file io.Reader, filename stri
 		ThumbnailUrl:  thumbnailURL,
 		Size:          int64(len(imageData)),
 		MimeType:      mimeType,
+		SourceType:    "upload",
 	})
 	if err != nil {
 		// 如果数据库保存失败，删除 OSS 文件（回滚）
@@ -175,7 +176,32 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 		return nil, fmt.Errorf("模型未返回任何内容")
 	}
 
-	// 按顺序提取内容
+	// 使用请求中的 workspace，如果没有则使用 "default"
+	workspace := req.Workspace
+	if workspace == "" {
+		workspace = "default"
+	}
+
+	// 获取或创建工作区
+	ws, err := s.workspaceRepo.GetByName(ctx, workspace)
+	if err != nil {
+		return nil, fmt.Errorf("获取工作区失败: %w", err)
+	}
+	if ws == nil {
+		return nil, fmt.Errorf("工作区 %s 不存在", workspace)
+	}
+
+	// 构建模型返回的对话历史（用于保存到数据库）
+	messageList := make([]map[string]string, 0)
+	// 存储待上传的图片数据（先收集所有 parts，再统一处理）
+	type pendingImage struct {
+		data     []byte
+		mimeType string
+		part     *genai.Part
+	}
+	pendingImages := make([]pendingImage, 0)
+
+	// 第一遍：收集所有 parts 和构建 messageList
 	for _, part := range resp.Candidates[0].Content.Parts {
 		// 1. 处理文本
 		if text := strings.TrimSpace(part.Text); text != "" {
@@ -183,79 +209,86 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 				Type: "text",
 				Text: text,
 			})
+			// 添加到对话历史
+			messageList = append(messageList, map[string]string{
+				"role":    "assistant",
+				"content": text,
+			})
 		}
 
-		// 2. 处理图片
+		// 2. 处理图片（先收集，稍后处理）
 		if part.InlineData != nil {
-			// 将生成的图片上传到 OSS
-			imageData := part.InlineData.Data
-			mimeType := part.InlineData.MIMEType
-
-			// 根据 MIME 类型确定文件扩展名
-			ext := s.getExtensionFromMimeType(mimeType)
-			filename := fmt.Sprintf("generated-%d%s", time.Now().UnixNano(), ext)
-
-			// 使用请求中的 workspace，如果没有则使用 "default"
-			workspace := req.Workspace
-			if workspace == "" {
-				workspace = "default"
-			}
-
-			// 获取或创建工作区
-			ws, err := s.workspaceRepo.GetByName(ctx, workspace)
-			if err != nil {
-				return nil, fmt.Errorf("获取工作区失败: %w", err)
-			}
-			if ws == nil {
-				return nil, fmt.Errorf("工作区 %s 不存在", workspace)
-			}
-
-			// 上传原图到 OSS
-			path, err := s.ossClient.UploadImage(bytes.NewReader(imageData), filename, workspace)
-			if err != nil {
-				return nil, fmt.Errorf("上传生成的图片到 OSS 失败: %w", err)
-			}
-
-			// 生成并上传缩略图
-			thumbnailPath, thumbnailURL, err := s.uploadThumbnail(ctx, imageData, filename, workspace)
-			if err != nil {
-				// 缩略图生成失败不影响主流程
-				thumbnailPath = ""
-				thumbnailURL = ""
-			}
-
-			// 获取访问 URL
-			url := s.ossClient.GetImageURL(path)
-
-			// 保存到数据库
-			dbImage, err := s.imageRepo.Create(ctx, &repository.Image{
-				WorkspaceID:   ws.ID,
-				Name:          filename,
-				OSSPath:       path,
-				OSSUrl:        url,
-				ThumbnailPath: thumbnailPath,
-				ThumbnailUrl:  thumbnailURL,
-				Size:          int64(len(imageData)),
-				MimeType:      mimeType,
-			})
-			if err != nil {
-				// 如果数据库保存失败，删除 OSS 文件（回滚）
-				s.ossClient.DeleteImage(path)
-				if thumbnailPath != "" {
-					s.ossClient.DeleteImage(thumbnailPath)
-				}
-				return nil, fmt.Errorf("保存生成的图片记录到数据库失败: %w", err)
-			}
-
-			result.Parts = append(result.Parts, model.GeneratePart{
-				Type: "image",
-				Image: &model.GeneratedImage{
-					MimeType: mimeType,
-					Path:     dbImage.OSSPath,
-					URL:      dbImage.OSSUrl,
-				},
+			pendingImages = append(pendingImages, pendingImage{
+				data:     part.InlineData.Data,
+				mimeType: part.InlineData.MIMEType,
+				part:     part,
 			})
 		}
+	}
+
+	// 第二遍：处理所有图片并保存
+	for _, pending := range pendingImages {
+		imageData := pending.data
+		mimeType := pending.mimeType
+
+		// 根据 MIME 类型确定文件扩展名
+		ext := s.getExtensionFromMimeType(mimeType)
+		filename := fmt.Sprintf("generated-%d%s", time.Now().UnixNano(), ext)
+
+		// 上传原图到 OSS
+		path, err := s.ossClient.UploadImage(bytes.NewReader(imageData), filename, workspace)
+		if err != nil {
+			return nil, fmt.Errorf("上传生成的图片到 OSS 失败: %w", err)
+		}
+
+		// 生成并上传缩略图
+		thumbnailPath, thumbnailURL, err := s.uploadThumbnail(ctx, imageData, filename, workspace)
+		if err != nil {
+			// 缩略图生成失败不影响主流程
+			thumbnailPath = ""
+			thumbnailURL = ""
+		}
+
+		// 获取访问 URL
+		url := s.ossClient.GetImageURL(path)
+
+		// 保存到数据库（使用模型返回的 messageList）
+		dbImage, err := s.imageRepo.Create(ctx, &repository.Image{
+			WorkspaceID:   ws.ID,
+			Name:          filename,
+			OSSPath:       path,
+			OSSUrl:        url,
+			ThumbnailPath: thumbnailPath,
+			ThumbnailUrl:  thumbnailURL,
+			Size:          int64(len(imageData)),
+			MimeType:      mimeType,
+			SourceType:    "generate",
+			Prompt:        req.Prompt,
+			RefImages:     req.Images,
+			MessageList:   messageList, // 使用模型返回的完整对话历史
+		})
+		if err != nil {
+			// 如果数据库保存失败，删除 OSS 文件（回滚）
+			s.ossClient.DeleteImage(path)
+			if thumbnailPath != "" {
+				s.ossClient.DeleteImage(thumbnailPath)
+			}
+			return nil, fmt.Errorf("保存生成的图片记录到数据库失败: %w", err)
+		}
+
+		result.Parts = append(result.Parts, model.GeneratePart{
+			Type: "image",
+			Image: &model.GeneratedImage{
+				MimeType: mimeType,
+				Path:     dbImage.OSSPath,
+				URL:      dbImage.OSSUrl,
+			},
+		})
+		// 添加到对话历史（图片用路径表示）
+		messageList = append(messageList, map[string]string{
+			"role":    "assistant",
+			"content": fmt.Sprintf("[图片] %s", dbImage.OSSPath),
+		})
 	}
 
 	return result, nil
@@ -332,13 +365,34 @@ func (s *Service) ListWorkspaceImages(ctx context.Context, workspace string) (*m
 			ThumbnailURL: dbImage.ThumbnailUrl,
 			Name:         dbImage.Name,
 			Size:         dbImage.Size,
-			Updated:      dbImage.UpdatedAt.Format(time.RFC3339),
+			Updated:      s.formatTime(dbImage.UpdatedAt),
+			SourceType:   dbImage.SourceType,
+			Prompt:       dbImage.Prompt,
+			RefImages:    dbImage.RefImages,
+			MessageList:  dbImage.MessageList,
 		})
 	}
 
 	return &model.ListWorkspaceImagesResponse{
 		Images: images,
 	}, nil
+}
+
+// formatTime 格式化时间，修正时区问题
+func (s *Service) formatTime(t time.Time) string {
+	// 数据库字段是 TIMESTAMP (无时区)，lib/pq 读取时默认为 UTC
+	// 但实际存储的是 Asia/Shanghai 时间 (由 CURRENT_TIMESTAMP 在 Asia/Shanghai 连接时区下生成)
+	// 例如：实际是 18:00 CST，数据库存了 18:00，Go 读出来是 18:00 UTC
+	// 如果直接 Format，前端会认为是 18:00 UTC = 02:00 CST (+1天)，导致“多了8小时”
+	// 所以我们需要将时间值的时区解释修正为 Asia/Shanghai，即把 18:00 UTC 视为 18:00 CST
+
+	// 使用 FixedZone 避免依赖系统 tzdata
+	loc := time.FixedZone("Asia/Shanghai", 8*3600)
+
+	// 构造一个新的时间对象，保持年月日时分秒不变，但时区改为 CST
+	tInLocation := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+
+	return tInLocation.Format(time.RFC3339)
 }
 
 // DeleteImage 删除图片（同时删除 OSS 文件和数据库记录）
@@ -393,32 +447,38 @@ func (s *Service) RenameImage(ctx context.Context, req *model.RenameImageRequest
 	if err != nil {
 		return nil, fmt.Errorf("重命名 OSS 图片失败: %w", err)
 	}
+	newUrl := s.ossClient.GetImageURL(newPath)
 
 	// 重命名缩略图（如果存在）
 	var newThumbnailPath string
+	var newThumbnailUrl string
 	if dbImage.ThumbnailPath != "" {
 		oldFilename := dbImage.Name
 		newThumbnailFilename := thumbnail.GetThumbnailFilename(req.NewName)
-		parts := strings.Split(dbImage.ThumbnailPath, "/")
-		if len(parts) > 0 {
-			parts[len(parts)-1] = newThumbnailFilename
-		}
 		oldThumbnailPath := dbImage.ThumbnailPath
-		newThumbnailPath = strings.Join(parts, "/")
-		
+
 		// 重命名缩略图
-		_, err = s.ossClient.RenameImage(oldThumbnailPath, newThumbnailFilename, req.Workspace)
+		newThumbnailPath, err = s.ossClient.RenameImage(oldThumbnailPath, newThumbnailFilename, req.Workspace)
 		if err != nil {
 			// 如果缩略图重命名失败，回滚原图重命名
 			s.ossClient.RenameImage(newPath, oldFilename, req.Workspace)
 			return nil, fmt.Errorf("重命名缩略图失败: %w", err)
 		}
+		newThumbnailUrl = s.ossClient.GetImageURL(newThumbnailPath)
 	}
 
 	// 更新数据库记录
-	updatedImage, err := s.imageRepo.Update(ctx, dbImage.ID, map[string]interface{}{
-		"name": req.NewName,
-	})
+	updates := map[string]interface{}{
+		"name":     req.NewName,
+		"oss_path": newPath,
+		"oss_url":  newUrl,
+	}
+	if newThumbnailPath != "" {
+		updates["thumbnail_path"] = newThumbnailPath
+		updates["thumbnail_url"] = newThumbnailUrl
+	}
+
+	updatedImage, err := s.imageRepo.Update(ctx, dbImage.ID, updates)
 	if err != nil {
 		// 如果数据库更新失败，回滚 OSS 重命名
 		s.ossClient.RenameImage(newPath, dbImage.Name, req.Workspace)
@@ -439,8 +499,11 @@ func (s *Service) RenameImage(ctx context.Context, req *model.RenameImageRequest
 			ThumbnailURL: updatedImage.ThumbnailUrl,
 			Name:         updatedImage.Name,
 			Size:         updatedImage.Size,
-			Updated:      updatedImage.UpdatedAt.Format(time.RFC3339),
+			Updated:      s.formatTime(updatedImage.UpdatedAt),
+			SourceType:   updatedImage.SourceType,
+			Prompt:       updatedImage.Prompt,
+			RefImages:    updatedImage.RefImages,
+			MessageList:  updatedImage.MessageList,
 		},
 	}, nil
 }
-

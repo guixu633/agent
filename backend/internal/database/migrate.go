@@ -17,6 +17,7 @@ func RunMigrations() error {
 	migrationFiles := []string{
 		"001_create_tables.sql",
 		"002_add_is_current_to_workspaces.sql",
+		"003_add_image_generation_info.sql",
 	}
 
 	// 尝试多个可能的路径前缀

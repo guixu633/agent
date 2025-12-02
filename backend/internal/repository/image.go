@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,17 +12,21 @@ import (
 
 // Image 图片数据库模型
 type Image struct {
-	ID           int64     `json:"id"`
-	WorkspaceID  int64     `json:"workspace_id"`
-	Name         string    `json:"name"`
-	OSSPath      string    `json:"oss_path"`
-	OSSUrl       string    `json:"oss_url"`
-	ThumbnailPath string   `json:"thumbnail_path"`
-	ThumbnailUrl  string   `json:"thumbnail_url"`
-	Size         int64     `json:"size"`
-	MimeType     string    `json:"mime_type"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            int64               `json:"id"`
+	WorkspaceID   int64               `json:"workspace_id"`
+	Name          string              `json:"name"`
+	OSSPath       string              `json:"oss_path"`
+	OSSUrl        string              `json:"oss_url"`
+	ThumbnailPath string              `json:"thumbnail_path"`
+	ThumbnailUrl  string              `json:"thumbnail_url"`
+	Size          int64               `json:"size"`
+	MimeType      string              `json:"mime_type"`
+	SourceType    string              `json:"source_type"`
+	Prompt        string              `json:"prompt"`
+	RefImages     []string            `json:"ref_images"`
+	MessageList   []map[string]string `json:"message_list"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
 }
 
 // ImageRepository 图片仓库接口
@@ -53,16 +58,41 @@ func (r *imageRepository) Create(ctx context.Context, img *Image) (*Image, error
 		INSERT INTO images (
 			workspace_id, name, oss_path, oss_url, 
 			thumbnail_path, thumbnail_url, size, mime_type,
+			source_type, prompt, ref_images, message_list,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		RETURNING id, workspace_id, name, oss_path, oss_url, 
 		          thumbnail_path, thumbnail_url, size, mime_type,
+		          source_type, prompt, ref_images, message_list,
 		          created_at, updated_at
 	`
 
+	refImagesJSON, err := json.Marshal(img.RefImages)
+	if err != nil {
+		return nil, fmt.Errorf("序列化引用图片失败: %w", err)
+	}
+	if img.RefImages == nil {
+		refImagesJSON = []byte("[]")
+	}
+
+	messageListJSON, err := json.Marshal(img.MessageList)
+	if err != nil {
+		return nil, fmt.Errorf("序列化消息列表失败: %w", err)
+	}
+	if img.MessageList == nil {
+		messageListJSON = []byte("[]")
+	}
+
+	// 默认值处理
+	if img.SourceType == "" {
+		img.SourceType = "upload"
+	}
+
 	var result Image
-	err := r.db.QueryRowContext(ctx, query,
+	var refImagesBytes, messageListBytes []byte
+
+	err = r.db.QueryRowContext(ctx, query,
 		img.WorkspaceID,
 		img.Name,
 		img.OSSPath,
@@ -71,6 +101,10 @@ func (r *imageRepository) Create(ctx context.Context, img *Image) (*Image, error
 		img.ThumbnailUrl,
 		img.Size,
 		img.MimeType,
+		img.SourceType,
+		img.Prompt,
+		refImagesJSON,
+		messageListJSON,
 	).Scan(
 		&result.ID,
 		&result.WorkspaceID,
@@ -81,11 +115,26 @@ func (r *imageRepository) Create(ctx context.Context, img *Image) (*Image, error
 		&result.ThumbnailUrl,
 		&result.Size,
 		&result.MimeType,
+		&result.SourceType,
+		&result.Prompt,
+		&refImagesBytes,
+		&messageListBytes,
 		&result.CreatedAt,
 		&result.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("创建图片记录失败: %w", err)
+	}
+
+	if len(refImagesBytes) > 0 {
+		if err := json.Unmarshal(refImagesBytes, &result.RefImages); err != nil {
+			return nil, fmt.Errorf("反序列化引用图片失败: %w", err)
+		}
+	}
+	if len(messageListBytes) > 0 {
+		if err := json.Unmarshal(messageListBytes, &result.MessageList); err != nil {
+			return nil, fmt.Errorf("反序列化消息列表失败: %w", err)
+		}
 	}
 
 	return &result, nil
@@ -96,12 +145,15 @@ func (r *imageRepository) GetByID(ctx context.Context, id int64) (*Image, error)
 	query := `
 		SELECT id, workspace_id, name, oss_path, oss_url,
 		       thumbnail_path, thumbnail_url, size, mime_type,
+		       source_type, prompt, ref_images, message_list,
 		       created_at, updated_at
 		FROM images
 		WHERE id = $1
 	`
 
 	var img Image
+	var refImagesBytes, messageListBytes []byte
+
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&img.ID,
 		&img.WorkspaceID,
@@ -112,6 +164,10 @@ func (r *imageRepository) GetByID(ctx context.Context, id int64) (*Image, error)
 		&img.ThumbnailUrl,
 		&img.Size,
 		&img.MimeType,
+		&img.SourceType,
+		&img.Prompt,
+		&refImagesBytes,
+		&messageListBytes,
 		&img.CreatedAt,
 		&img.UpdatedAt,
 	)
@@ -120,6 +176,13 @@ func (r *imageRepository) GetByID(ctx context.Context, id int64) (*Image, error)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("获取图片失败: %w", err)
+	}
+
+	if len(refImagesBytes) > 0 {
+		json.Unmarshal(refImagesBytes, &img.RefImages)
+	}
+	if len(messageListBytes) > 0 {
+		json.Unmarshal(messageListBytes, &img.MessageList)
 	}
 
 	return &img, nil
@@ -130,12 +193,15 @@ func (r *imageRepository) GetByOSSPath(ctx context.Context, ossPath string) (*Im
 	query := `
 		SELECT id, workspace_id, name, oss_path, oss_url,
 		       thumbnail_path, thumbnail_url, size, mime_type,
+		       source_type, prompt, ref_images, message_list,
 		       created_at, updated_at
 		FROM images
 		WHERE oss_path = $1
 	`
 
 	var img Image
+	var refImagesBytes, messageListBytes []byte
+
 	err := r.db.QueryRowContext(ctx, query, ossPath).Scan(
 		&img.ID,
 		&img.WorkspaceID,
@@ -146,6 +212,10 @@ func (r *imageRepository) GetByOSSPath(ctx context.Context, ossPath string) (*Im
 		&img.ThumbnailUrl,
 		&img.Size,
 		&img.MimeType,
+		&img.SourceType,
+		&img.Prompt,
+		&refImagesBytes,
+		&messageListBytes,
 		&img.CreatedAt,
 		&img.UpdatedAt,
 	)
@@ -156,6 +226,13 @@ func (r *imageRepository) GetByOSSPath(ctx context.Context, ossPath string) (*Im
 		return nil, fmt.Errorf("获取图片失败: %w", err)
 	}
 
+	if len(refImagesBytes) > 0 {
+		json.Unmarshal(refImagesBytes, &img.RefImages)
+	}
+	if len(messageListBytes) > 0 {
+		json.Unmarshal(messageListBytes, &img.MessageList)
+	}
+
 	return &img, nil
 }
 
@@ -164,6 +241,7 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 	query := `
 		SELECT id, workspace_id, name, oss_path, oss_url,
 		       thumbnail_path, thumbnail_url, size, mime_type,
+		       source_type, prompt, ref_images, message_list,
 		       created_at, updated_at
 		FROM images
 		WHERE workspace_id = $1
@@ -179,6 +257,7 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 	images := make([]*Image, 0)
 	for rows.Next() {
 		var img Image
+		var refImagesBytes, messageListBytes []byte
 		if err := rows.Scan(
 			&img.ID,
 			&img.WorkspaceID,
@@ -189,11 +268,23 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 			&img.ThumbnailUrl,
 			&img.Size,
 			&img.MimeType,
+			&img.SourceType,
+			&img.Prompt,
+			&refImagesBytes,
+			&messageListBytes,
 			&img.CreatedAt,
 			&img.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("扫描图片数据失败: %w", err)
 		}
+
+		if len(refImagesBytes) > 0 {
+			json.Unmarshal(refImagesBytes, &img.RefImages)
+		}
+		if len(messageListBytes) > 0 {
+			json.Unmarshal(messageListBytes, &img.MessageList)
+		}
+
 		images = append(images, &img)
 	}
 
@@ -209,6 +300,7 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 	query := `
 		SELECT i.id, i.workspace_id, i.name, i.oss_path, i.oss_url,
 		       i.thumbnail_path, i.thumbnail_url, i.size, i.mime_type,
+		       i.source_type, i.prompt, i.ref_images, i.message_list,
 		       i.created_at, i.updated_at
 		FROM images i
 		INNER JOIN workspaces w ON i.workspace_id = w.id
@@ -225,6 +317,7 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 	images := make([]*Image, 0)
 	for rows.Next() {
 		var img Image
+		var refImagesBytes, messageListBytes []byte
 		if err := rows.Scan(
 			&img.ID,
 			&img.WorkspaceID,
@@ -235,11 +328,23 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 			&img.ThumbnailUrl,
 			&img.Size,
 			&img.MimeType,
+			&img.SourceType,
+			&img.Prompt,
+			&refImagesBytes,
+			&messageListBytes,
 			&img.CreatedAt,
 			&img.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("扫描图片数据失败: %w", err)
 		}
+
+		if len(refImagesBytes) > 0 {
+			json.Unmarshal(refImagesBytes, &img.RefImages)
+		}
+		if len(messageListBytes) > 0 {
+			json.Unmarshal(messageListBytes, &img.MessageList)
+		}
+
 		images = append(images, &img)
 	}
 
@@ -251,29 +356,66 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 }
 
 // Update 更新图片记录
-// 目前只支持更新 name 字段
+// 支持更新 name, oss_path, oss_url, thumbnail_path, thumbnail_url 字段
 func (r *imageRepository) Update(ctx context.Context, id int64, updates map[string]interface{}) (*Image, error) {
 	if len(updates) == 0 {
 		return r.GetByID(ctx, id)
 	}
 
-	// 目前只支持更新 name 字段
-	name, ok := updates["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("不支持的更新字段，目前只支持更新 name")
+	// 构建动态 SQL
+	query := "UPDATE images SET updated_at = CURRENT_TIMESTAMP"
+	args := []interface{}{}
+	argId := 1
+
+	// 处理支持的字段
+	if name, ok := updates["name"].(string); ok {
+		query += fmt.Sprintf(", name = $%d", argId)
+		args = append(args, name)
+		argId++
 	}
 
-	query := `
-		UPDATE images
-		SET name = $1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $2
+	if ossPath, ok := updates["oss_path"].(string); ok {
+		query += fmt.Sprintf(", oss_path = $%d", argId)
+		args = append(args, ossPath)
+		argId++
+	}
+
+	if ossUrl, ok := updates["oss_url"].(string); ok {
+		query += fmt.Sprintf(", oss_url = $%d", argId)
+		args = append(args, ossUrl)
+		argId++
+	}
+
+	if thumbnailPath, ok := updates["thumbnail_path"].(string); ok {
+		query += fmt.Sprintf(", thumbnail_path = $%d", argId)
+		args = append(args, thumbnailPath)
+		argId++
+	}
+
+	if thumbnailUrl, ok := updates["thumbnail_url"].(string); ok {
+		query += fmt.Sprintf(", thumbnail_url = $%d", argId)
+		args = append(args, thumbnailUrl)
+		argId++
+	}
+
+	// source_type, prompt, ref_images, message_list 也可以支持更新，但目前需求主要是重命名
+
+	// 添加 WHERE 子句
+	query += fmt.Sprintf(" WHERE id = $%d", argId)
+	args = append(args, id)
+
+	// 添加 RETURNING 子句
+	query += `
 		RETURNING id, workspace_id, name, oss_path, oss_url,
 		          thumbnail_path, thumbnail_url, size, mime_type,
+		          source_type, prompt, ref_images, message_list,
 		          created_at, updated_at
 	`
 
 	var img Image
-	err := r.db.QueryRowContext(ctx, query, name, id).Scan(
+	var refImagesBytes, messageListBytes []byte
+
+	err := r.db.QueryRowContext(ctx, query, args...).Scan(
 		&img.ID,
 		&img.WorkspaceID,
 		&img.Name,
@@ -283,11 +425,22 @@ func (r *imageRepository) Update(ctx context.Context, id int64, updates map[stri
 		&img.ThumbnailUrl,
 		&img.Size,
 		&img.MimeType,
+		&img.SourceType,
+		&img.Prompt,
+		&refImagesBytes,
+		&messageListBytes,
 		&img.CreatedAt,
 		&img.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("更新图片失败: %w", err)
+	}
+
+	if len(refImagesBytes) > 0 {
+		json.Unmarshal(refImagesBytes, &img.RefImages)
+	}
+	if len(messageListBytes) > 0 {
+		json.Unmarshal(messageListBytes, &img.MessageList)
 	}
 
 	return &img, nil
@@ -332,4 +485,3 @@ func (r *imageRepository) DeleteByOSSPath(ctx context.Context, ossPath string) e
 
 	return nil
 }
-

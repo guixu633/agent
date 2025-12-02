@@ -29,7 +29,7 @@ func TestGenerateImage(t *testing.T) {
 			Prompt: "一只可爱的羊毛毡小猫咪",
 		}
 
-		resp, err := service.GenerateImage(context.Background(), req)
+		resp, err := NewService(client, nil).GenerateImage(context.Background(), req)
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 

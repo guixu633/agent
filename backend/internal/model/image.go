@@ -34,9 +34,10 @@ type ImageUploadResponse struct {
 
 // ImageGenerateRequest 图片生成请求
 type ImageGenerateRequest struct {
-	Prompt    string   `json:"prompt" binding:"required"`
-	Images    []string `json:"images"`              // OSS 中的图片路径列表
-	Workspace string   `json:"workspace"`           // 工作区名称（可选，用于生成图片存储）
+	Prompt    string              `json:"prompt" binding:"required"`
+	Images    []string            `json:"images"`              // OSS 中的图片路径列表
+	Workspace string              `json:"workspace"`           // 工作区名称（可选，用于生成图片存储）
+	Messages  []map[string]string `json:"messages,omitempty"`  // 完整的对话历史 (可选，用于记录)
 }
 
 // ListWorkspaceImagesRequest 列出工作区图片请求
@@ -46,12 +47,16 @@ type ListWorkspaceImagesRequest struct {
 
 // ImageInfo 图片信息
 type ImageInfo struct {
-	Path         string `json:"path"`          // OSS 中的路径
-	URL          string `json:"url"`           // 图片访问 URL（原图）
-	ThumbnailURL string `json:"thumbnail_url"` // 缩略图访问 URL
-	Name         string `json:"name"`          // 文件名
-	Size         int64  `json:"size"`         // 文件大小（字节）
-	Updated      string `json:"updated"`      // 最后更新时间（ISO 8601 格式）
+	Path         string              `json:"path"`                   // OSS 中的路径
+	URL          string              `json:"url"`                    // 图片访问 URL（原图）
+	ThumbnailURL string              `json:"thumbnail_url"`          // 缩略图访问 URL
+	Name         string              `json:"name"`                   // 文件名
+	Size         int64               `json:"size"`                   // 文件大小（字节）
+	Updated      string              `json:"updated"`                // 最后更新时间（ISO 8601 格式）
+	SourceType   string              `json:"source_type"`            // 来源类型: "upload" | "generate"
+	Prompt       string              `json:"prompt,omitempty"`       // 生成时的提示词
+	RefImages    []string            `json:"ref_images,omitempty"`   // 生成时的引用图片
+	MessageList  []map[string]string `json:"message_list,omitempty"` // 生成时的对话历史
 }
 
 // ListWorkspaceImagesResponse 列出工作区图片响应

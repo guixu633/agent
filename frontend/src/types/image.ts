@@ -3,6 +3,7 @@ export interface ImageGenerateRequest {
   prompt: string;
   images?: string[]; // OSS 中的图片路径列表
   workspace?: string; // 工作区名称（可选，用于生成图片存储）
+  messages?: Record<string, string>[]; // 完整的对话历史 (可选，用于记录)
 }
 
 // 图片上传响应
@@ -39,6 +40,10 @@ export interface ImageInfo {
   name: string; // 文件名
   size: number; // 文件大小（字节）
   updated: string; // 最后更新时间（ISO 8601 格式）
+  source_type: 'upload' | 'generate'; // 来源类型
+  prompt?: string; // 生成时的提示词
+  ref_images?: string[]; // 生成时的引用图片
+  message_list?: Record<string, string>[]; // 生成时的对话历史
 }
 
 // 列出工作区图片响应
