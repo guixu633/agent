@@ -14,6 +14,13 @@ export function ImageGenerator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerateResponse | null>(null);
+  const [generateCount, setGenerateCount] = useState(1); // 生成数量，默认1张，最多3张
+  const [results, setResults] = useState<Array<{
+    data: ImageGenerateResponse | null;
+    status: 'pending' | 'generating' | 'success' | 'error';
+    elapsedTime: number | null;
+    error?: string;
+  }>>([]);
   
   // Workspace 相关状态
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -41,22 +48,16 @@ export function ImageGenerator() {
   
   // 计时器状态
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [finalElapsedTime, setFinalElapsedTime] = useState<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
 
-  // 清除计时器并保存最终耗时
+  // 清除计时器
   const clearTimer = () => {
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    // 保存最终耗时
-    if (startTimeRef.current !== null) {
-      const finalTime = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setFinalElapsedTime(finalTime);
-      startTimeRef.current = null;
-    }
+    startTimeRef.current = null;
   };
 
   // 组件卸载时清理
@@ -355,7 +356,15 @@ export function ImageGenerator() {
     setError(null);
     setResult(null);
     setElapsedTime(0);
-    setFinalElapsedTime(null);
+    
+    // 初始化结果数组
+    const initialResults = Array.from({ length: generateCount }, () => ({
+      data: null,
+      status: 'pending' as const,
+      elapsedTime: null,
+    }));
+    setResults(initialResults);
+
     startTimeRef.current = Date.now();
 
     // 启动计时器
@@ -370,21 +379,81 @@ export function ImageGenerator() {
       // 获取选中图片的路径列表
       const imagePaths = selectedImages.map((img) => img.path);
 
-      // 调用生成 API，使用路径列表
-      const response = await imageService.generateImage({
-        prompt: prompt.trim(),
-        images: imagePaths.length > 0 ? imagePaths : undefined,
-        workspace: currentWorkspace,
+      // 循环调用接口生成多张图片
+      const generatePromises = initialResults.map(async (_, index) => {
+        const itemStartTime = Date.now();
+        
+        // 更新状态为生成中
+        setResults((prev) => {
+          const newResults = [...prev];
+          newResults[index] = { ...newResults[index], status: 'generating' };
+          return newResults;
+        });
+
+        try {
+          const response = await imageService.generateImage({
+            prompt: prompt.trim(),
+            images: imagePaths.length > 0 ? imagePaths : undefined,
+            workspace: currentWorkspace,
+          });
+
+          const itemElapsedTime = Math.floor((Date.now() - itemStartTime) / 1000);
+
+          // 更新成功状态
+          setResults((prev) => {
+            const newResults = [...prev];
+            newResults[index] = {
+              data: response,
+              status: 'success',
+              elapsedTime: itemElapsedTime,
+            };
+            return newResults;
+          });
+
+          return response;
+        } catch (err) {
+          const itemElapsedTime = Math.floor((Date.now() - itemStartTime) / 1000);
+          const errorMessage = err instanceof Error ? err.message : '生成失败，请重试';
+          
+          // 更新失败状态
+          setResults((prev) => {
+            const newResults = [...prev];
+            newResults[index] = {
+              data: null,
+              status: 'error',
+              elapsedTime: itemElapsedTime,
+              error: errorMessage,
+            };
+            return newResults;
+          });
+
+          throw err;
+        }
       });
 
-      setResult(response);
-      // 生成成功后刷新图片列表
-      loadWorkspaceImages();
+      // 等待所有生成完成（使用 allSettled 确保所有请求都完成，即使有失败的）
+      const settledResults = await Promise.allSettled(generatePromises);
+      
+      // 检查是否有成功的生成
+      const hasSuccess = settledResults.some(result => result.status === 'fulfilled');
+      
+      if (hasSuccess) {
+        // 生成成功后刷新图片列表
+        loadWorkspaceImages();
+      }
+      
+      // 如果有失败的，显示错误信息
+      const failedCount = settledResults.filter(result => result.status === 'rejected').length;
+      if (failedCount > 0) {
+        setError(`有 ${failedCount} 张图片生成失败`);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '生成失败，请重试');
+      // 整体错误处理
+      const errorMessage = err instanceof Error ? err.message : '生成过程出错';
+      setError(errorMessage);
     } finally {
       setLoading(false);
-      clearTimer(); // clearTimer 会自动保存最终耗时
+      clearTimer();
     }
   };
 
@@ -633,6 +702,25 @@ export function ImageGenerator() {
             />
           </div>
 
+          {/* 生成数量选择 */}
+          <div className="form-group">
+            <label htmlFor="generate-count">生成数量</label>
+            <div className="generate-count-selector">
+              {[1, 2, 3].map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  onClick={() => setGenerateCount(count)}
+                  disabled={loading}
+                  className={`count-option ${generateCount === count ? 'active' : ''}`}
+                >
+                  {count} 张
+                </button>
+              ))}
+            </div>
+            <p className="form-hint">选择要生成的图片数量，最多可一次性生成 3 张</p>
+          </div>
+
           {/* 已选中的图片 */}
           {selectedImages.length > 0 && (
             <div className="form-group">
@@ -674,52 +762,128 @@ export function ImageGenerator() {
             disabled={loading || !prompt.trim()}
             className="submit-btn"
           >
-            {loading ? `生成中 (${formatTime(elapsedTime)})...` : '生成图片'}
+            {(() => {
+              if (loading) {
+                const completedCount = results.filter(r => r.status === 'success' || r.status === 'error').length;
+                const currentCount = completedCount + results.filter(r => r.status === 'generating').length;
+                if (generateCount > 1) {
+                  return `生成中 ${currentCount}/${generateCount} (${formatTime(elapsedTime)})...`;
+                }
+                return `生成中 (${formatTime(elapsedTime)})...`;
+              }
+              return `生成图片${generateCount > 1 ? ` (${generateCount} 张)` : ''}`;
+            })()}
           </button>
         </form>
 
         {/* 生成结果 */}
-        {result && (
+        {(results.length > 0 || result) && (
           <div className="result-section">
             <div className="result-header">
               <h2>生成结果</h2>
-              {finalElapsedTime !== null && (
-                <div className="generation-time">
-                  生成耗时: {formatTime(finalElapsedTime)}
-                </div>
-              )}
             </div>
             
-            <div className="generated-content">
-              {result.parts.map((part, index) => (
-                <div key={index} className={`result-part result-part-${part.type}`}>
-                  {part.type === 'text' && (
-                    <div className="description">
-                      <p>{part.text}</p>
+            {/* 多张生成结果 */}
+            {results.length > 0 && (
+              <div className="generated-results-list">
+                {results.map((resultItem, resultIndex) => (
+                  <div key={resultIndex} className="generated-result-item">
+                    <div className="result-item-header">
+                      <h3>第 {resultIndex + 1} 张</h3>
+                      <div className="result-item-status">
+                        {resultItem.status === 'pending' && (
+                          <span className="status-pending">等待中</span>
+                        )}
+                        {resultItem.status === 'generating' && (
+                          <span className="status-generating">生成中...</span>
+                        )}
+                        {resultItem.status === 'success' && resultItem.elapsedTime !== null && (
+                          <span className="status-success">
+                            完成 ({formatTime(resultItem.elapsedTime)})
+                          </span>
+                        )}
+                        {resultItem.status === 'error' && (
+                          <span className="status-error">
+                            失败 {resultItem.elapsedTime !== null && `(${formatTime(resultItem.elapsedTime)})`}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                  
-                  {part.type === 'image' && part.image && (
-                    <div className="generated-image-item">
-                      <img
-                        src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
-                        alt={`生成的图片 ${index + 1}`}
-                        className="generated-image"
-                      />
-                      <a
-                        href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
-                        download={part.image.url ? undefined : `generated-${Date.now()}-${index}.png`}
-                        target={part.image.url ? '_blank' : undefined}
-                        rel={part.image.url ? 'noopener noreferrer' : undefined}
-                        className="download-btn"
-                      >
-                        {part.image.url ? '查看原图' : '下载图片'}
-                      </a>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    
+                    {resultItem.status === 'error' && resultItem.error && (
+                      <div className="result-error-message">{resultItem.error}</div>
+                    )}
+                    
+                    {resultItem.data && (
+                      <div className="generated-content">
+                        {resultItem.data.parts.map((part, partIndex) => (
+                          <div key={partIndex} className={`result-part result-part-${part.type}`}>
+                            {part.type === 'text' && (
+                              <div className="description">
+                                <p>{part.text}</p>
+                              </div>
+                            )}
+                            
+                            {part.type === 'image' && part.image && (
+                              <div className="generated-image-item">
+                                <img
+                                  src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
+                                  alt={`生成的图片 ${resultIndex + 1}-${partIndex + 1}`}
+                                  className="generated-image"
+                                />
+                                <a
+                                  href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
+                                  download={part.image.url ? undefined : `generated-${Date.now()}-${resultIndex}-${partIndex}.png`}
+                                  target={part.image.url ? '_blank' : undefined}
+                                  rel={part.image.url ? 'noopener noreferrer' : undefined}
+                                  className="download-btn"
+                                >
+                                  {part.image.url ? '查看原图' : '下载图片'}
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* 兼容旧的单个结果展示 */}
+            {results.length === 0 && result && (
+              <div className="generated-content">
+                {result.parts.map((part, index) => (
+                  <div key={index} className={`result-part result-part-${part.type}`}>
+                    {part.type === 'text' && (
+                      <div className="description">
+                        <p>{part.text}</p>
+                      </div>
+                    )}
+                    
+                    {part.type === 'image' && part.image && (
+                      <div className="generated-image-item">
+                        <img
+                          src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
+                          alt={`生成的图片 ${index + 1}`}
+                          className="generated-image"
+                        />
+                        <a
+                          href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
+                          download={part.image.url ? undefined : `generated-${Date.now()}-${index}.png`}
+                          target={part.image.url ? '_blank' : undefined}
+                          rel={part.image.url ? 'noopener noreferrer' : undefined}
+                          className="download-btn"
+                        >
+                          {part.image.url ? '查看原图' : '下载图片'}
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         </div>

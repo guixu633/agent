@@ -69,6 +69,50 @@ h1 {
   border-color: #667eea;
 }
 
+.form-hint {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #999;
+  margin-bottom: 0;
+}
+
+.generate-count-selector {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.count-option {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.count-option:hover:not(:disabled) {
+  border-color: #667eea;
+  background: #f8f9fa;
+  transform: translateY(-2px);
+}
+
+.count-option.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.count-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .form-group input[type="file"] {
   width: 100%;
   padding: 0.75rem;
@@ -232,6 +276,89 @@ h1 {
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid #e0e0e0;
+}
+
+.generated-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.generated-result-item {
+  background: #f8f9fa;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 1.5rem;
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.result-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e0e0e0;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.result-item-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.result-item-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-pending {
+  color: #999;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+  background: #f0f0f0;
+  border-radius: 6px;
+}
+
+.status-generating {
+  color: #667eea;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+  background: #f0f4ff;
+  border-radius: 6px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-success {
+  color: #10b981;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+  background: #f0fdf4;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.status-error {
+  color: #ef4444;
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+  background: #fef2f2;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.result-error-message {
+  background: #fee;
+  color: #c33;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #c33;
+  margin-bottom: 1rem;
+  font-size: 0.9375rem;
 }
 
 .generated-content {
