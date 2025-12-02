@@ -384,6 +384,60 @@ h1 {
   margin: 0;
 }
 
+.text-messages-section {
+  margin-bottom: 1.5rem;
+}
+
+.text-messages-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #666;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.5rem;
+}
+
+.text-messages-toggle:hover {
+  background: #f0f4ff;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.text-messages-toggle .toggle-icon {
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+}
+
+.text-messages-toggle .toggle-text {
+  font-weight: 500;
+}
+
+.text-messages-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.text-message {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+  line-height: 1.6;
+  color: #444;
+}
+
 .result-part-image {
   display: flex;
   justify-content: center;

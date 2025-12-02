@@ -21,6 +21,7 @@ export function ImageGenerator() {
     elapsedTime: number | null;
     error?: string;
   }>>([]);
+  const [expandedTexts, setExpandedTexts] = useState<Set<number>>(new Set()); // 展开的文本消息结果索引，默认全部折叠
   
   // Workspace 相关状态
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -236,14 +237,15 @@ export function ImageGenerator() {
 
     try {
       await imageService.deleteImage({ path: image.path });
-      // 从列表中移除
+      // 从列表中移除（使用 diff 更新，避免重新加载导致折叠）
       setWorkspaceImages((prev) => prev.filter((img) => img.path !== image.path));
       // 如果图片被选中，也从选中列表中移除
       setSelectedImages((prev) => prev.filter((img) => img.path !== image.path));
-      // 刷新列表
-      await loadWorkspaceImages();
+      // 不再调用 loadWorkspaceImages()，避免列表折叠
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除图片失败');
+      // 如果删除失败，重新加载列表以确保数据同步
+      await loadWorkspaceImages();
     }
   };
 
@@ -296,7 +298,7 @@ export function ImageGenerator() {
         workspace: currentWorkspace,
       });
 
-      // 更新列表中的图片信息
+      // 更新列表中的图片信息（使用 diff 更新，避免重新加载导致折叠）
       setWorkspaceImages((prev) =>
         prev.map((img) =>
           img.path === renamingImage.path ? response.image : img
@@ -311,8 +313,7 @@ export function ImageGenerator() {
       );
 
       handleCancelRename();
-      // 刷新列表以确保数据同步
-      await loadWorkspaceImages();
+      // 不再调用 loadWorkspaceImages()，避免列表折叠
     } catch (err) {
       setError(err instanceof Error ? err.message : '重命名图片失败');
     }
@@ -327,14 +328,35 @@ export function ImageGenerator() {
       
       try {
         // 上传所有文件
-        await Promise.all(
+        const uploadResults = await Promise.all(
           newFiles.map((file) => imageService.uploadImage(file, currentWorkspace))
         );
         
-        // 上传成功后刷新图片列表
-        await loadWorkspaceImages();
+        // 先添加临时信息到列表（避免列表折叠）
+        const tempImages: ImageInfo[] = uploadResults.map((result, index) => ({
+          path: result.path,
+          url: result.url,
+          thumbnail_url: result.url, // 暂时使用原图作为缩略图
+          name: newFiles[index].name,
+          size: newFiles[index].size,
+          updated: new Date().toISOString(),
+        }));
+        setWorkspaceImages((prev) => [...tempImages, ...prev]);
+        
+        // 然后在后台静默刷新列表以获取完整信息（包括缩略图等）
+        // 使用 setTimeout 避免阻塞 UI
+        setTimeout(async () => {
+          try {
+            await loadWorkspaceImages();
+          } catch (err) {
+            console.error('后台刷新图片列表失败:', err);
+            // 刷新失败时保持临时信息
+          }
+        }, 300);
       } catch (err) {
         setError(err instanceof Error ? err.message : '部分图片上传失败');
+        // 上传失败时刷新列表以确保数据同步
+        await loadWorkspaceImages();
       } finally {
         setUploading(false);
         // 清空 input 值，允许重复选择同一个文件
@@ -696,6 +718,19 @@ export function ImageGenerator() {
               id="prompt"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                // Cmd+Enter (Mac) 或 Ctrl+Enter (Windows/Linux) 快速提交
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  if (!loading && prompt.trim()) {
+                    // 触发表单提交
+                    const form = e.currentTarget.closest('form') as HTMLFormElement;
+                    if (form) {
+                      form.requestSubmit();
+                    }
+                  }
+                }
+              }}
               placeholder="请描述你想要生成的图片，例如：帮我把图片修改为羊毛毡的可爱风格，短手短脚的那种可爱玩偶的感觉"
               rows={4}
               disabled={loading}
@@ -786,54 +821,166 @@ export function ImageGenerator() {
             {/* 多张生成结果 */}
             {results.length > 0 && (
               <div className="generated-results-list">
-                {results.map((resultItem, resultIndex) => (
-                  <div key={resultIndex} className="generated-result-item">
-                    <div className="result-item-header">
-                      <h3>第 {resultIndex + 1} 张</h3>
-                      <div className="result-item-status">
-                        {resultItem.status === 'pending' && (
-                          <span className="status-pending">等待中</span>
-                        )}
-                        {resultItem.status === 'generating' && (
-                          <span className="status-generating">生成中...</span>
-                        )}
-                        {resultItem.status === 'success' && resultItem.elapsedTime !== null && (
-                          <span className="status-success">
-                            完成 ({formatTime(resultItem.elapsedTime)})
-                          </span>
-                        )}
-                        {resultItem.status === 'error' && (
-                          <span className="status-error">
-                            失败 {resultItem.elapsedTime !== null && `(${formatTime(resultItem.elapsedTime)})`}
-                          </span>
-                        )}
+                {results.map((resultItem, resultIndex) => {
+                  const isTextExpanded = expandedTexts.has(resultIndex);
+                  const textParts = resultItem.data?.parts.filter(p => p.type === 'text') || [];
+                  const imageParts = resultItem.data?.parts.filter(p => p.type === 'image') || [];
+                  
+                  return (
+                    <div key={resultIndex} className="generated-result-item">
+                      <div className="result-item-header">
+                        <h3>第 {resultIndex + 1} 张</h3>
+                        <div className="result-item-status">
+                          {resultItem.status === 'pending' && (
+                            <span className="status-pending">等待中</span>
+                          )}
+                          {resultItem.status === 'generating' && (
+                            <span className="status-generating">生成中...</span>
+                          )}
+                          {resultItem.status === 'success' && resultItem.elapsedTime !== null && (
+                            <span className="status-success">
+                              完成 ({formatTime(resultItem.elapsedTime)})
+                            </span>
+                          )}
+                          {resultItem.status === 'error' && (
+                            <span className="status-error">
+                              失败 {resultItem.elapsedTime !== null && `(${formatTime(resultItem.elapsedTime)})`}
+                            </span>
+                          )}
+                        </div>
                       </div>
+                      
+                      {resultItem.status === 'error' && resultItem.error && (
+                        <div className="result-error-message">{resultItem.error}</div>
+                      )}
+                      
+                      {resultItem.data && (
+                        <div className="generated-content">
+                          {/* 文本消息部分 - 可折叠 */}
+                          {textParts.length > 0 && (
+                            <div className="text-messages-section">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedTexts((prev) => {
+                                    const newSet = new Set(prev);
+                                    if (isTextExpanded) {
+                                      newSet.delete(resultIndex);
+                                    } else {
+                                      newSet.add(resultIndex);
+                                    }
+                                    return newSet;
+                                  });
+                                }}
+                                className="text-messages-toggle"
+                              >
+                                <span className="toggle-icon">{isTextExpanded ? '▼' : '▶'}</span>
+                                <span className="toggle-text">
+                                  {isTextExpanded ? '收起' : '展开'}消息 ({textParts.length} 条)
+                                </span>
+                              </button>
+                              {isTextExpanded && (
+                                <div className="text-messages-content">
+                                  {textParts.map((part, textIndex) => (
+                                    <div key={textIndex} className="text-message">
+                                      {part.text}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* 图片部分 - 默认展开 */}
+                          {imageParts.map((part, imageIndex) => (
+                            part.image && (
+                              <div key={`image-${imageIndex}`} className="result-part result-part-image">
+                                <div className="generated-image-item">
+                                  <img
+                                    src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
+                                    alt={`生成的图片 ${resultIndex + 1}-${imageIndex + 1}`}
+                                    className="generated-image"
+                                  />
+                                  <a
+                                    href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
+                                    download={part.image.url ? undefined : `generated-${Date.now()}-${resultIndex}-${imageIndex}.png`}
+                                    target={part.image.url ? '_blank' : undefined}
+                                    rel={part.image.url ? 'noopener noreferrer' : undefined}
+                                    className="download-btn"
+                                  >
+                                    {part.image.url ? '查看原图' : '下载图片'}
+                                  </a>
+                                </div>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      )}
                     </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {/* 兼容旧的单个结果展示 */}
+            {results.length === 0 && result && (
+              <div className="generated-result-item">
+                <div className="generated-content">
+                  {(() => {
+                    const textParts = result.parts.filter(p => p.type === 'text');
+                    const imageParts = result.parts.filter(p => p.type === 'image');
+                    const isTextExpanded = expandedTexts.has(-1); // 使用 -1 作为单个结果的标识
                     
-                    {resultItem.status === 'error' && resultItem.error && (
-                      <div className="result-error-message">{resultItem.error}</div>
-                    )}
-                    
-                    {resultItem.data && (
-                      <div className="generated-content">
-                        {resultItem.data.parts.map((part, partIndex) => (
-                          <div key={partIndex} className={`result-part result-part-${part.type}`}>
-                            {part.type === 'text' && (
-                              <div className="description">
-                                <p>{part.text}</p>
+                    return (
+                      <>
+                        {/* 文本消息部分 - 可折叠 */}
+                        {textParts.length > 0 && (
+                          <div className="text-messages-section">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedTexts((prev) => {
+                                  const newSet = new Set(prev);
+                                  if (isTextExpanded) {
+                                    newSet.delete(-1);
+                                  } else {
+                                    newSet.add(-1);
+                                  }
+                                  return newSet;
+                                });
+                              }}
+                              className="text-messages-toggle"
+                            >
+                              <span className="toggle-icon">{isTextExpanded ? '▼' : '▶'}</span>
+                              <span className="toggle-text">
+                                {isTextExpanded ? '收起' : '展开'}消息 ({textParts.length} 条)
+                              </span>
+                            </button>
+                            {isTextExpanded && (
+                              <div className="text-messages-content">
+                                {textParts.map((part, textIndex) => (
+                                  <div key={textIndex} className="text-message">
+                                    {part.text}
+                                  </div>
+                                ))}
                               </div>
                             )}
-                            
-                            {part.type === 'image' && part.image && (
+                          </div>
+                        )}
+                        
+                        {/* 图片部分 - 默认展开 */}
+                        {imageParts.map((part, imageIndex) => (
+                          part.image && (
+                            <div key={`image-${imageIndex}`} className="result-part result-part-image">
                               <div className="generated-image-item">
                                 <img
                                   src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
-                                  alt={`生成的图片 ${resultIndex + 1}-${partIndex + 1}`}
+                                  alt={`生成的图片 ${imageIndex + 1}`}
                                   className="generated-image"
                                 />
                                 <a
                                   href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
-                                  download={part.image.url ? undefined : `generated-${Date.now()}-${resultIndex}-${partIndex}.png`}
+                                  download={part.image.url ? undefined : `generated-${Date.now()}-${imageIndex}.png`}
                                   target={part.image.url ? '_blank' : undefined}
                                   rel={part.image.url ? 'noopener noreferrer' : undefined}
                                   className="download-btn"
@@ -841,47 +988,13 @@ export function ImageGenerator() {
                                   {part.image.url ? '查看原图' : '下载图片'}
                                 </a>
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          )
                         ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            {/* 兼容旧的单个结果展示 */}
-            {results.length === 0 && result && (
-              <div className="generated-content">
-                {result.parts.map((part, index) => (
-                  <div key={index} className={`result-part result-part-${part.type}`}>
-                    {part.type === 'text' && (
-                      <div className="description">
-                        <p>{part.text}</p>
-                      </div>
-                    )}
-                    
-                    {part.type === 'image' && part.image && (
-                      <div className="generated-image-item">
-                        <img
-                          src={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '')}
-                          alt={`生成的图片 ${index + 1}`}
-                          className="generated-image"
-                        />
-                        <a
-                          href={part.image.url || (part.image.data ? `data:${part.image.mimeType};base64,${part.image.data}` : '#')}
-                          download={part.image.url ? undefined : `generated-${Date.now()}-${index}.png`}
-                          target={part.image.url ? '_blank' : undefined}
-                          rel={part.image.url ? 'noopener noreferrer' : undefined}
-                          className="download-btn"
-                        >
-                          {part.image.url ? '查看原图' : '下载图片'}
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>
