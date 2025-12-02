@@ -88,3 +88,45 @@ func (h *Handler) Delete(c *gin.Context) {
 	response.Success(c, nil)
 }
 
+// SetCurrent 设置当前工作区
+// @Summary 设置当前工作区
+// @Description 切换当前工作区
+// @Tags workspace
+// @Accept json
+// @Produce json
+// @Param request body model.SetCurrentWorkspaceRequest true "设置当前工作区请求"
+// @Success 200 {object} response.Response{data=model.SetCurrentWorkspaceResponse}
+// @Router /api/workspace/current [put]
+func (h *Handler) SetCurrent(c *gin.Context) {
+	var req model.SetCurrentWorkspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorWithStatus(c, http.StatusBadRequest, 400, "请求参数错误: "+err.Error())
+		return
+	}
+
+	result, err := h.workspaceService.SetCurrentWorkspace(c.Request.Context(), &req)
+	if err != nil {
+		response.Error(c, 500, "设置当前工作区失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+// GetCurrent 获取当前工作区
+// @Summary 获取当前工作区
+// @Description 获取当前激活的工作区
+// @Tags workspace
+// @Produce json
+// @Success 200 {object} response.Response{data=model.GetCurrentWorkspaceResponse}
+// @Router /api/workspace/current [get]
+func (h *Handler) GetCurrent(c *gin.Context) {
+	result, err := h.workspaceService.GetCurrentWorkspace(c.Request.Context())
+	if err != nil {
+		response.Error(c, 500, "获取当前工作区失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+

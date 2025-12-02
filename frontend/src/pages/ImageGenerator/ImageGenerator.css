@@ -6,6 +6,7 @@
 
 .image-generator-layout {
   display: flex;
+  align-items: flex-start; /* 防止左右两侧互相拉伸 */
   gap: 1.5rem;
   max-width: 1400px;
   margin: 0 auto;
@@ -17,6 +18,7 @@
   border-radius: 16px;
   padding: 2rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  align-self: flex-start; /* 确保容器高度不受左侧影响 */
 }
 
 .main-header {
@@ -207,6 +209,29 @@ h1 {
 .result-section h2 {
   color: #333;
   margin-bottom: 1.5rem;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.result-header h2 {
+  margin-bottom: 0;
+}
+
+.generation-time {
+  color: #666;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
 }
 
 .generated-content {
@@ -644,6 +669,7 @@ h1 {
   padding: 0.5rem;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* 确保 flex 子元素可以正确收缩 */
 }
 
 /* 上传图片区域 */

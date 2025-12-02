@@ -68,7 +68,7 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 
 	// 调用服务层上传
-	result, err := h.imageService.UploadImage(src, filename, workspace)
+	result, err := h.imageService.UploadImage(c.Request.Context(), src, filename, workspace)
 	if err != nil {
 		response.Error(c, 500, "上传图片失败: "+err.Error())
 		return

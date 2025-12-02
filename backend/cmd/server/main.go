@@ -8,9 +8,11 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/guixu633/agent/backend/internal/config"
+	"github.com/guixu633/agent/backend/internal/database"
 	imageHandler "github.com/guixu633/agent/backend/internal/handler/image"
 	workspaceHandler "github.com/guixu633/agent/backend/internal/handler/workspace"
 	"github.com/guixu633/agent/backend/internal/oss"
+	"github.com/guixu633/agent/backend/internal/repository"
 	imageService "github.com/guixu633/agent/backend/internal/service/image"
 	workspaceService "github.com/guixu633/agent/backend/internal/service/workspace"
 	"google.golang.org/genai"
@@ -44,13 +46,26 @@ func main() {
 		log.Fatalf("初始化 OSS 客户端失败: %v", err)
 	}
 
-	// PostgreSQL 配置已加载到 appConfig.Postgres
-	// 后续可以在需要时使用 appConfig.Postgres.GetDSN() 获取连接字符串
-	_ = appConfig.Postgres
+	// 初始化数据库连接
+	dsn := appConfig.Postgres.GetDSN()
+	if err := database.InitDB(dsn); err != nil {
+		log.Fatalf("初始化数据库连接失败: %v", err)
+	}
+	defer database.CloseDB()
+
+	// 运行数据库迁移
+	if err := database.RunMigrations(); err != nil {
+		log.Fatalf("数据库迁移失败: %v", err)
+	}
+	log.Println("数据库迁移完成")
+
+	// 初始化 Repository 层
+	workspaceRepo := repository.NewWorkspaceRepository()
+	imageRepo := repository.NewImageRepository()
 
 	// 初始化服务层
-	imgService := imageService.NewService(genaiClient, ossClient)
-	wsService := workspaceService.NewService(ossClient)
+	imgService := imageService.NewService(genaiClient, ossClient, imageRepo, workspaceRepo)
+	wsService := workspaceService.NewService(ossClient, workspaceRepo)
 
 	// 初始化处理器层
 	imgHandler := imageHandler.NewHandler(imgService)
@@ -72,18 +87,21 @@ func main() {
 	api := r.Group("/api")
 	{
 		// 工作区相关接口
-		api.GET("/workspace", wsHandler.List)           // 列出所有工作区
-		api.POST("/workspace", wsHandler.Create)        // 创建工作区
-		api.DELETE("/workspace", wsHandler.Delete)      // 删除工作区
+		api.GET("/workspace", wsHandler.List)               // 列出所有工作区
+		api.POST("/workspace", wsHandler.Create)            // 创建工作区
+		api.DELETE("/workspace", wsHandler.Delete)          // 删除工作区
+		api.GET("/workspace/current", wsHandler.GetCurrent) // 获取当前工作区
+		api.PUT("/workspace/current", wsHandler.SetCurrent) // 设置当前工作区（切换工作区）
+		api.POST("/workspace/switch", wsHandler.SetCurrent) // 切换工作区（别名，与 PUT /workspace/current 相同）
 
 		// 图片相关接口
 		imageGroup := api.Group("/image")
 		{
-			imageGroup.GET("/list", imgHandler.List)         // 列出工作区图片接口
-			imageGroup.POST("/upload", imgHandler.Upload)    // 图片上传接口
+			imageGroup.GET("/list", imgHandler.List)          // 列出工作区图片接口
+			imageGroup.POST("/upload", imgHandler.Upload)     // 图片上传接口
 			imageGroup.POST("/generate", imgHandler.Generate) // 图片生成接口
-			imageGroup.DELETE("", imgHandler.Delete)         // 删除图片接口
-			imageGroup.POST("/rename", imgHandler.Rename)    // 重命名图片接口
+			imageGroup.DELETE("", imgHandler.Delete)          // 删除图片接口
+			imageGroup.POST("/rename", imgHandler.Rename)     // 重命名图片接口
 		}
 	}
 

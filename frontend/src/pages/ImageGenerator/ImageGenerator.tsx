@@ -4,6 +4,7 @@ import { imageService } from '@/services/image/imageService';
 import { workspaceService } from '@/services/workspace/workspaceService';
 import type { ImageGenerateResponse, ImageInfo } from '@/types/image';
 import type { Workspace } from '@/types/workspace';
+import { formatDateOnlyToBeijing, formatDateTimeToBeijing } from '@/utils/date';
 import './ImageGenerator.css';
 
 export function ImageGenerator() {
@@ -16,16 +17,17 @@ export function ImageGenerator() {
   
   // Workspace 相关状态
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [currentWorkspace, setCurrentWorkspace] = useState<string>('default');
+  const [currentWorkspace, setCurrentWorkspace] = useState<string>('');
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showWorkspaceDropdown, setShowWorkspaceDropdown] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
+  const isLoadingRef = useRef(false); // 防止重复加载
   
   // 图片列表相关状态
   const [workspaceImages, setWorkspaceImages] = useState<ImageInfo[]>([]);
-  const [showImageList, setShowImageList] = useState(false);
+  const [showImageList, setShowImageList] = useState(true); // 默认展开
   const [imagesLoading, setImagesLoading] = useState(false);
   const imageListRef = useRef<HTMLDivElement>(null);
   
@@ -39,13 +41,21 @@ export function ImageGenerator() {
   
   // 计时器状态
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [finalElapsedTime, setFinalElapsedTime] = useState<number | null>(null);
   const timerRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
-  // 清除计时器
+  // 清除计时器并保存最终耗时
   const clearTimer = () => {
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
+    }
+    // 保存最终耗时
+    if (startTimeRef.current !== null) {
+      const finalTime = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setFinalElapsedTime(finalTime);
+      startTimeRef.current = null;
     }
   };
 
@@ -80,37 +90,43 @@ export function ImageGenerator() {
     };
   }, [showWorkspaceDropdown, showImageList]);
 
-  // 加载工作区列表
+  // 初始化：加载工作区列表和当前工作区
   useEffect(() => {
-    loadWorkspaces();
+    if (isLoadingRef.current) return;
+    isLoadingRef.current = true;
+    
+    const initializeWorkspaces = async () => {
+      try {
+        // 先加载工作区列表（包含 is_current 字段）
+        const workspacesResponse = await workspaceService.listWorkspaces();
+        setWorkspaces(workspacesResponse.workspaces);
+        
+        // 从列表中查找当前工作区（is_current: true）
+        const currentWs = workspacesResponse.workspaces.find(w => w.is_current);
+        if (currentWs) {
+          setCurrentWorkspace(currentWs.name);
+        } else if (workspacesResponse.workspaces.length > 0) {
+          // 如果没有当前工作区，使用第一个
+          setCurrentWorkspace(workspacesResponse.workspaces[0].name);
+        }
+      } catch (err) {
+        console.error('初始化工作区失败:', err);
+      } finally {
+        isLoadingRef.current = false;
+      }
+    };
+    
+    initializeWorkspaces();
   }, []);
 
   // 当工作区改变时，加载图片列表并清空选中的图片
   useEffect(() => {
-    if (currentWorkspace) {
+    if (currentWorkspace && !isLoadingRef.current) {
       setSelectedImages([]); // 切换工作区时清空选中的图片
       loadWorkspaceImages();
     }
   }, [currentWorkspace]);
 
-  // 加载工作区列表
-  const loadWorkspaces = async () => {
-    try {
-      const response = await workspaceService.listWorkspaces();
-      setWorkspaces(response.workspaces);
-      // 如果当前工作区不在列表中，设置为第一个或 default
-      if (response.workspaces.length > 0) {
-        const exists = response.workspaces.some(
-          (w) => w.name === currentWorkspace
-        );
-        if (!exists) {
-          setCurrentWorkspace(response.workspaces[0].name);
-        }
-      }
-    } catch (err) {
-      console.error('加载工作区列表失败:', err);
-    }
-  };
 
   // 创建工作区
   const handleCreateWorkspace = async () => {
@@ -121,11 +137,16 @@ export function ImageGenerator() {
 
     setWorkspaceLoading(true);
     try {
-      await workspaceService.createWorkspace({ name: newWorkspaceName.trim() });
+      const workspaceName = newWorkspaceName.trim();
+      await workspaceService.createWorkspace({ name: workspaceName });
+      // 创建后自动设置为当前工作区
+      await workspaceService.setCurrentWorkspace({ name: workspaceName });
       setNewWorkspaceName('');
       setShowWorkspaceModal(false);
-      await loadWorkspaces();
-      setCurrentWorkspace(newWorkspaceName.trim());
+      // 重新加载工作区列表并更新当前工作区
+      const response = await workspaceService.listWorkspaces();
+      setWorkspaces(response.workspaces);
+      setCurrentWorkspace(workspaceName); // 这会触发图片加载
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建工作区失败');
     } finally {
@@ -142,14 +163,19 @@ export function ImageGenerator() {
     setWorkspaceLoading(true);
     try {
       await workspaceService.deleteWorkspace({ name });
-      await loadWorkspaces();
-      // 如果删除的是当前工作区，切换到第一个或 default
+      // 重新加载工作区列表
+      const response = await workspaceService.listWorkspaces();
+      setWorkspaces(response.workspaces);
+      
+      // 如果删除的是当前工作区，切换到第一个或当前工作区
       if (currentWorkspace === name) {
-        if (workspaces.length > 1) {
-          const nextWorkspace = workspaces.find((w) => w.name !== name);
-          setCurrentWorkspace(nextWorkspace?.name || 'default');
+        const currentWs = response.workspaces.find(w => w.is_current);
+        if (currentWs) {
+          setCurrentWorkspace(currentWs.name);
+        } else if (response.workspaces.length > 0) {
+          setCurrentWorkspace(response.workspaces[0].name);
         } else {
-          setCurrentWorkspace('default');
+          setCurrentWorkspace('');
         }
       }
     } catch (err) {
@@ -329,10 +355,15 @@ export function ImageGenerator() {
     setError(null);
     setResult(null);
     setElapsedTime(0);
+    setFinalElapsedTime(null);
+    startTimeRef.current = Date.now();
 
     // 启动计时器
     timerRef.current = window.setInterval(() => {
-      setElapsedTime((prev) => prev + 1);
+      if (startTimeRef.current !== null) {
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        setElapsedTime(elapsed);
+      }
     }, 1000);
 
     try {
@@ -353,7 +384,7 @@ export function ImageGenerator() {
       setError(err instanceof Error ? err.message : '生成失败，请重试');
     } finally {
       setLoading(false);
-      clearTimer();
+      clearTimer(); // clearTimer 会自动保存最终耗时
     }
   };
 
@@ -390,17 +421,27 @@ export function ImageGenerator() {
                       <button
                         key={ws.name}
                         type="button"
-                        onClick={() => {
-                          setCurrentWorkspace(ws.name);
-                          setShowWorkspaceDropdown(false);
-                          setSelectedImages([]); // 切换工作区时清空选中的图片
+                        onClick={async () => {
+                          try {
+                            // 调用 API 切换工作区
+                            await workspaceService.setCurrentWorkspace({ name: ws.name });
+                            setCurrentWorkspace(ws.name);
+                            setShowWorkspaceDropdown(false);
+                            setSelectedImages([]); // 切换工作区时清空选中的图片
+                            // 重新加载工作区列表以更新 is_current 状态（不触发图片加载，因为 currentWorkspace 已经设置）
+                            const response = await workspaceService.listWorkspaces();
+                            setWorkspaces(response.workspaces);
+                          } catch (err) {
+                            console.error('切换工作区失败:', err);
+                            setError('切换工作区失败: ' + (err instanceof Error ? err.message : '未知错误'));
+                          }
                         }}
                         className={`workspace-option ${
-                          ws.name === currentWorkspace ? 'active' : ''
+                          ws.name === currentWorkspace || ws.is_current ? 'active' : ''
                         }`}
                       >
                         <span>{ws.name}</span>
-                        {ws.name === currentWorkspace && (
+                        {(ws.name === currentWorkspace || ws.is_current) && (
                           <span className="workspace-check">✓</span>
                         )}
                       </button>
@@ -535,7 +576,7 @@ export function ImageGenerator() {
                               {image.name}
                             </div>
                             <div className="image-list-item-meta">
-                              {new Date(image.updated).toLocaleDateString()}
+                              {formatDateOnlyToBeijing(image.updated)}
                             </div>
                           </>
                         )}
@@ -640,7 +681,14 @@ export function ImageGenerator() {
         {/* 生成结果 */}
         {result && (
           <div className="result-section">
-            <h2>生成结果</h2>
+            <div className="result-header">
+              <h2>生成结果</h2>
+              {finalElapsedTime !== null && (
+                <div className="generation-time">
+                  生成耗时: {formatTime(finalElapsedTime)}
+                </div>
+              )}
+            </div>
             
             <div className="generated-content">
               {result.parts.map((part, index) => (
@@ -752,7 +800,7 @@ export function ImageGenerator() {
             <div className="image-preview-header">
               <h3>{previewImage.name}</h3>
               <div className="image-preview-meta">
-                <span>{new Date(previewImage.updated).toLocaleString()}</span>
+                <span>{formatDateTimeToBeijing(previewImage.updated)}</span>
                 {previewImage.size > 0 && (
                   <span className="image-preview-size">
                     {(previewImage.size / 1024).toFixed(2)} KB

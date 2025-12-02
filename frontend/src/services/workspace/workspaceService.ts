@@ -1,12 +1,14 @@
 import axios from 'axios';
 import type {
-  Workspace,
   ListWorkspacesResponse,
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   DeleteWorkspaceRequest,
-  ApiResponse,
+  SetCurrentWorkspaceRequest,
+  SetCurrentWorkspaceResponse,
+  GetCurrentWorkspaceResponse,
 } from '@/types/workspace';
+import type { ApiResponse } from '@/types/image';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -76,6 +78,39 @@ class WorkspaceService {
     if (response.data.code !== 0) {
       throw new Error(response.data.message || '删除工作区失败');
     }
+  }
+
+  /**
+   * 设置当前工作区（切换工作区）
+   */
+  async setCurrentWorkspace(
+    request: SetCurrentWorkspaceRequest
+  ): Promise<SetCurrentWorkspaceResponse> {
+    const response = await apiClient.put<ApiResponse<SetCurrentWorkspaceResponse>>(
+      '/workspace/current',
+      request
+    );
+
+    if (response.data.code !== 0) {
+      throw new Error(response.data.message || '切换工作区失败');
+    }
+
+    return response.data.data!;
+  }
+
+  /**
+   * 获取当前工作区
+   */
+  async getCurrentWorkspace(): Promise<GetCurrentWorkspaceResponse> {
+    const response = await apiClient.get<ApiResponse<GetCurrentWorkspaceResponse>>(
+      '/workspace/current'
+    );
+
+    if (response.data.code !== 0) {
+      throw new Error(response.data.message || '获取当前工作区失败');
+    }
+
+    return response.data.data!;
   }
 }
 
