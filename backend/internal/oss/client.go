@@ -152,6 +152,16 @@ func (c *Client) UploadImage(file io.Reader, filename string, workspace string) 
 	return objectKey, nil
 }
 
+// UploadFile 上传文件到 OSS 指定路径
+// path: OSS 中的完整路径
+func (c *Client) UploadFile(reader io.Reader, path string) error {
+	err := c.bucket.PutObject(path, reader)
+	if err != nil {
+		return fmt.Errorf("上传文件到 OSS 失败: %w", err)
+	}
+	return nil
+}
+
 // ListWorkspaces 列出所有工作区（查看 /image 下的目录）
 func (c *Client) ListWorkspaces() ([]string, error) {
 	prefix := strings.TrimSuffix(c.config.ImagePrefix, "/")

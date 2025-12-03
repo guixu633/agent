@@ -7,6 +7,7 @@ import type {
   DeleteImageRequest,
   RenameImageRequest,
   RenameImageResponse,
+  GetImageDetailResponse,
   ApiResponse,
 } from '@/types/image';
 
@@ -153,6 +154,24 @@ class ImageService {
 
     if (response.data.code !== 0) {
       throw new Error(response.data.message || '重命名图片失败');
+    }
+
+    return response.data.data!;
+  }
+
+  /**
+   * 获取图片详情（包含 message_list）
+   */
+  async getImageDetail(id: number): Promise<GetImageDetailResponse> {
+    const response = await apiClient.get<ApiResponse<GetImageDetailResponse>>(
+      '/image/detail',
+      {
+        params: { id },
+      }
+    );
+
+    if (response.data.code !== 0) {
+      throw new Error(response.data.message || '获取图片详情失败');
     }
 
     return response.data.data!;

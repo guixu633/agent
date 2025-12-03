@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -174,6 +175,37 @@ func (h *Handler) Rename(c *gin.Context) {
 	result, err := h.imageService.RenameImage(c.Request.Context(), &req)
 	if err != nil {
 		response.Error(c, 500, "重命名图片失败: "+err.Error())
+		return
+	}
+
+	response.Success(c, result)
+}
+
+// GetDetail 获取图片详情
+// @Summary 获取图片详情
+// @Description 获取指定图片的详细信息，包括 message_list
+// @Tags image
+// @Produce json
+// @Param id query int true "图片 ID"
+// @Success 200 {object} response.Response{data=model.GetImageDetailResponse}
+// @Router /api/image/detail [get]
+func (h *Handler) GetDetail(c *gin.Context) {
+	idStr := c.Query("id")
+	if idStr == "" {
+		response.ErrorWithStatus(c, http.StatusBadRequest, 400, "图片 ID 不能为空")
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		response.ErrorWithStatus(c, http.StatusBadRequest, 400, "图片 ID 格式错误")
+		return
+	}
+
+	// 调用服务层
+	result, err := h.imageService.GetImageDetail(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, 500, "获取图片详情失败: "+err.Error())
 		return
 	}
 

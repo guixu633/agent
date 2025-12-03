@@ -98,6 +98,7 @@ func main() {
 		imageGroup := api.Group("/image")
 		{
 			imageGroup.GET("/list", imgHandler.List)          // 列出工作区图片接口
+			imageGroup.GET("/detail", imgHandler.GetDetail)   // 获取图片详情接口
 			imageGroup.POST("/upload", imgHandler.Upload)     // 图片上传接口
 			imageGroup.POST("/generate", imgHandler.Generate) // 图片生成接口
 			imageGroup.DELETE("", imgHandler.Delete)          // 删除图片接口

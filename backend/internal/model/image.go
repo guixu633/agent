@@ -1,5 +1,21 @@
 package model
 
+// MessageType 消息类型
+type MessageType string
+
+const (
+	MessageTypeText  MessageType = "text"
+	MessageTypeImage MessageType = "image"
+)
+
+// Message 对话消息
+type Message struct {
+	Role    string      `json:"role"`              // 角色: "user" | "assistant"
+	Type    MessageType `json:"type"`              // 消息类型: "text" | "image"
+	Content string      `json:"content,omitempty"` // 文本内容 (type="text" 时有效)
+	URL     string      `json:"url,omitempty"`     // 图片 URL (type="image" 时有效)
+}
+
 // ImageGenerateResponse 图片生成响应
 type ImageGenerateResponse struct {
 	Parts []GeneratePart `json:"parts"` // 有序的内容片段
@@ -33,11 +49,11 @@ type ImageUploadResponse struct {
 
 // ImageGenerateRequest 图片生成请求
 type ImageGenerateRequest struct {
-	Prompt          string              `json:"prompt" binding:"required"`
-	Images          []string            `json:"images"`             // OSS 中的图片路径列表
-	Workspace       string              `json:"workspace"`          // 工作区名称（可选，用于生成图片存储）
-	Messages        []map[string]string `json:"messages,omitempty"` // 完整的对话历史 (可选，用于记录)
-	EnableWebSearch bool                `json:"enable_web_search"`  // 是否启用联网搜索（默认 false）
+	Prompt          string    `json:"prompt" binding:"required"`
+	Images          []string  `json:"images"`             // OSS 中的图片路径列表
+	Workspace       string    `json:"workspace"`          // 工作区名称（可选，用于生成图片存储）
+	Messages        []Message `json:"messages,omitempty"` // 完整的对话历史 (可选，用于记录)
+	EnableWebSearch bool      `json:"enable_web_search"`  // 是否启用联网搜索（默认 false）
 }
 
 // ListWorkspaceImagesRequest 列出工作区图片请求
@@ -47,16 +63,17 @@ type ListWorkspaceImagesRequest struct {
 
 // ImageInfo 图片信息
 type ImageInfo struct {
-	Path         string              `json:"path"`                   // OSS 中的路径
-	URL          string              `json:"url"`                    // 图片访问 URL（原图）
-	ThumbnailURL string              `json:"thumbnail_url"`          // 缩略图访问 URL
-	Name         string              `json:"name"`                   // 文件名
-	Size         int64               `json:"size"`                   // 文件大小（字节）
-	Updated      string              `json:"updated"`                // 最后更新时间（ISO 8601 格式）
-	SourceType   string              `json:"source_type"`            // 来源类型: "upload" | "generate"
-	Prompt       string              `json:"prompt,omitempty"`       // 生成时的提示词
-	RefImages    []string            `json:"ref_images,omitempty"`   // 生成时的引用图片
-	MessageList  []map[string]string `json:"message_list,omitempty"` // 生成时的对话历史
+	ID           int64     `json:"id"`                     // 图片 ID
+	Path         string    `json:"path"`                   // OSS 中的路径
+	URL          string    `json:"url"`                    // 图片访问 URL（原图）
+	ThumbnailURL string    `json:"thumbnail_url"`          // 缩略图访问 URL
+	Name         string    `json:"name"`                   // 文件名
+	Size         int64     `json:"size"`                   // 文件大小（字节）
+	Updated      string    `json:"updated"`                // 最后更新时间（ISO 8601 格式）
+	SourceType   string    `json:"source_type"`            // 来源类型: "upload" | "generate"
+	Prompt       string    `json:"prompt,omitempty"`       // 生成时的提示词
+	RefImages    []string  `json:"ref_images,omitempty"`   // 生成时的引用图片
+	MessageList  []Message `json:"message_list,omitempty"` // 生成时的对话历史
 }
 
 // ListWorkspaceImagesResponse 列出工作区图片响应
@@ -79,4 +96,9 @@ type RenameImageRequest struct {
 // RenameImageResponse 重命名图片响应
 type RenameImageResponse struct {
 	Image ImageInfo `json:"image"` // 重命名后的图片信息
+}
+
+// GetImageDetailResponse 获取图片详情响应
+type GetImageDetailResponse struct {
+	Image ImageInfo `json:"image"` // 图片详细信息（包含 message_list）
 }

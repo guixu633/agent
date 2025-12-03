@@ -469,6 +469,7 @@ export function ImageGenerator() {
       
       // 先添加临时信息到列表（避免列表折叠）
       const tempImages: ImageInfo[] = uploadResults.map((result, index) => ({
+        id: 0, // 临时 ID，后续刷新会获取真实 ID
         path: result.path,
         url: result.url,
         thumbnail_url: result.url, // 暂时使用原图作为缩略图
@@ -709,6 +710,7 @@ export function ImageGenerator() {
     e.stopPropagation();
     const existingInfo = workspaceImages.find(img => img.path === path);
     const imageInfo = existingInfo || {
+        id: 0, // 临时 ID
         path: path,
         name: getFileNameFromPath(path),
         url: '',
@@ -724,56 +726,71 @@ export function ImageGenerator() {
   const handleRestoreContext = async (image: ImageInfo, e: React.MouseEvent) => {
     e.stopPropagation();
     
-    console.log('回溯图片信息:', {
-      path: image.path,
-      prompt: image.prompt,
-      ref_images: image.ref_images,
-      message_list: image.message_list,
-      source_type: image.source_type
-    });
-    
-    // 填充 prompt
-    if (image.prompt) {
-        setPrompt(image.prompt);
-    } else {
-        setError('该图片没有保存生成时的提示词信息');
+    // 如果图片没有 ID，无法获取详情
+    if (!image.id) {
+        setError('该图片没有有效的 ID，无法获取详情');
         return;
     }
     
-    // 填充引用图片
-    if (image.ref_images && image.ref_images.length > 0) {
-        // 找到对应的图片对象
-        const refImages = workspaceImages.filter(img => image.ref_images?.includes(img.path));
-        setSelectedImages(refImages);
+    try {
+        // 通过 API 获取图片详情（包含 message_list）
+        const response = await imageService.getImageDetail(image.id);
+        const detailImage = response.image;
         
-        // 如果有些引用图片不在当前列表中，提示用户
-        if (refImages.length < image.ref_images.length) {
-            const missingCount = image.ref_images.length - refImages.length;
-            setError(`已回溯参数，但有 ${missingCount} 张引用图片不在当前工作区列表中`);
+        console.log('回溯图片详情:', {
+          id: detailImage.id,
+          path: detailImage.path,
+          prompt: detailImage.prompt,
+          ref_images: detailImage.ref_images,
+          message_list: detailImage.message_list,
+          source_type: detailImage.source_type
+        });
+        
+        // 填充 prompt
+        if (detailImage.prompt) {
+            setPrompt(detailImage.prompt);
         } else {
-            // 清空之前的错误信息
+            setError('该图片没有保存生成时的提示词信息');
+            return;
+        }
+        
+        // 填充引用图片
+        if (detailImage.ref_images && detailImage.ref_images.length > 0) {
+            // 找到对应的图片对象
+            const refImages = workspaceImages.filter(img => detailImage.ref_images?.includes(img.path));
+            setSelectedImages(refImages);
+            
+            // 如果有些引用图片不在当前列表中，提示用户
+            if (refImages.length < detailImage.ref_images.length) {
+                const missingCount = detailImage.ref_images.length - refImages.length;
+                setError(`已回溯参数，但有 ${missingCount} 张引用图片不在当前工作区列表中`);
+            } else {
+                // 清空之前的错误信息
+                setError(null);
+            }
+        } else {
+            setSelectedImages([]);
             setError(null);
         }
-    } else {
-        setSelectedImages([]);
-        setError(null);
+        
+        // 如果有 message_list，保存图片信息以便在生成结果区域展示
+        if (detailImage.message_list && detailImage.message_list.length > 0) {
+            setRestoredImageInfo(detailImage);
+        } else {
+            setRestoredImageInfo(null);
+        }
+        
+        // 滚动到输入框位置，方便用户查看
+        setTimeout(() => {
+          const promptElement = document.getElementById('prompt');
+          if (promptElement) {
+            promptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            promptElement.focus();
+          }
+        }, 100);
+    } catch (err) {
+        setError(err instanceof Error ? err.message : '获取图片详情失败');
     }
-    
-    // 如果有 message_list，保存图片信息以便在生成结果区域展示
-    if (image.message_list && image.message_list.length > 0) {
-        setRestoredImageInfo(image);
-    } else {
-        setRestoredImageInfo(null);
-    }
-    
-    // 滚动到输入框位置，方便用户查看
-    setTimeout(() => {
-      const promptElement = document.getElementById('prompt');
-      if (promptElement) {
-        promptElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        promptElement.focus();
-      }
-    }, 100);
   };
 
   return (

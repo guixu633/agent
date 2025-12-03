@@ -10,23 +10,31 @@ import (
 	"github.com/guixu633/agent/backend/internal/database"
 )
 
+// Message 对话消息（与 model.Message 保持一致）
+type Message struct {
+	Role    string `json:"role"`              // 角色: "user" | "assistant"
+	Type    string `json:"type"`              // 消息类型: "text" | "image"
+	Content string `json:"content,omitempty"` // 文本内容 (type="text" 时有效)
+	URL     string `json:"url,omitempty"`     // 图片 URL (type="image" 时有效)
+}
+
 // Image 图片数据库模型
 type Image struct {
-	ID            int64               `json:"id"`
-	WorkspaceID   int64               `json:"workspace_id"`
-	Name          string              `json:"name"`
-	OSSPath       string              `json:"oss_path"`
-	OSSUrl        string              `json:"oss_url"`
-	ThumbnailPath string              `json:"thumbnail_path"`
-	ThumbnailUrl  string              `json:"thumbnail_url"`
-	Size          int64               `json:"size"`
-	MimeType      string              `json:"mime_type"`
-	SourceType    string              `json:"source_type"`
-	Prompt        string              `json:"prompt"`
-	RefImages     []string            `json:"ref_images"`
-	MessageList   []map[string]string `json:"message_list"`
-	CreatedAt     time.Time           `json:"created_at"`
-	UpdatedAt     time.Time           `json:"updated_at"`
+	ID            int64     `json:"id"`
+	WorkspaceID   int64     `json:"workspace_id"`
+	Name          string    `json:"name"`
+	OSSPath       string    `json:"oss_path"`
+	OSSUrl        string    `json:"oss_url"`
+	ThumbnailPath string    `json:"thumbnail_path"`
+	ThumbnailUrl  string    `json:"thumbnail_url"`
+	Size          int64     `json:"size"`
+	MimeType      string    `json:"mime_type"`
+	SourceType    string    `json:"source_type"`
+	Prompt        string    `json:"prompt"`
+	RefImages     []string  `json:"ref_images"`
+	MessageList   []Message `json:"message_list"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // ImageRepository 图片仓库接口
@@ -237,12 +245,12 @@ func (r *imageRepository) GetByOSSPath(ctx context.Context, ossPath string) (*Im
 }
 
 // ListByWorkspace 根据工作区 ID 列出图片
+// 注意：不查询 prompt, ref_images, message_list 字段以减少数据传输量，需要完整信息请使用 GetByID
 func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64) ([]*Image, error) {
 	query := `
 		SELECT id, workspace_id, name, oss_path, oss_url,
 		       thumbnail_path, thumbnail_url, size, mime_type,
-		       source_type, prompt, ref_images, message_list,
-		       created_at, updated_at
+		       source_type, created_at, updated_at
 		FROM images
 		WHERE workspace_id = $1
 		ORDER BY created_at DESC
@@ -257,7 +265,6 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 	images := make([]*Image, 0)
 	for rows.Next() {
 		var img Image
-		var refImagesBytes, messageListBytes []byte
 		if err := rows.Scan(
 			&img.ID,
 			&img.WorkspaceID,
@@ -269,20 +276,10 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 			&img.Size,
 			&img.MimeType,
 			&img.SourceType,
-			&img.Prompt,
-			&refImagesBytes,
-			&messageListBytes,
 			&img.CreatedAt,
 			&img.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("扫描图片数据失败: %w", err)
-		}
-
-		if len(refImagesBytes) > 0 {
-			json.Unmarshal(refImagesBytes, &img.RefImages)
-		}
-		if len(messageListBytes) > 0 {
-			json.Unmarshal(messageListBytes, &img.MessageList)
 		}
 
 		images = append(images, &img)
@@ -296,12 +293,12 @@ func (r *imageRepository) ListByWorkspace(ctx context.Context, workspaceID int64
 }
 
 // ListByWorkspaceName 根据工作区名称列出图片
+// 注意：不查询 prompt, ref_images, message_list 字段以减少数据传输量，需要完整信息请使用 GetByID
 func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName string) ([]*Image, error) {
 	query := `
 		SELECT i.id, i.workspace_id, i.name, i.oss_path, i.oss_url,
 		       i.thumbnail_path, i.thumbnail_url, i.size, i.mime_type,
-		       i.source_type, i.prompt, i.ref_images, i.message_list,
-		       i.created_at, i.updated_at
+		       i.source_type, i.created_at, i.updated_at
 		FROM images i
 		INNER JOIN workspaces w ON i.workspace_id = w.id
 		WHERE w.name = $1
@@ -317,7 +314,6 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 	images := make([]*Image, 0)
 	for rows.Next() {
 		var img Image
-		var refImagesBytes, messageListBytes []byte
 		if err := rows.Scan(
 			&img.ID,
 			&img.WorkspaceID,
@@ -329,20 +325,10 @@ func (r *imageRepository) ListByWorkspaceName(ctx context.Context, workspaceName
 			&img.Size,
 			&img.MimeType,
 			&img.SourceType,
-			&img.Prompt,
-			&refImagesBytes,
-			&messageListBytes,
 			&img.CreatedAt,
 			&img.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("扫描图片数据失败: %w", err)
-		}
-
-		if len(refImagesBytes) > 0 {
-			json.Unmarshal(refImagesBytes, &img.RefImages)
-		}
-		if len(messageListBytes) > 0 {
-			json.Unmarshal(messageListBytes, &img.MessageList)
 		}
 
 		images = append(images, &img)

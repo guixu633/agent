@@ -450,9 +450,10 @@ h1 {
 
 /* 新增的图片画廊样式 */
 .generated-images-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1.5rem;
+  justify-content: center; /* 居中显示 */
   margin-bottom: 2rem;
 }
 
@@ -465,6 +466,8 @@ h1 {
   transition: transform 0.2s, box-shadow 0.2s;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 320px; /* 限制最大宽度，生成结果置顶时更紧凑 */
 }
 
 .gallery-image-card:hover {
@@ -475,18 +478,17 @@ h1 {
 .gallery-image-wrapper {
   position: relative;
   width: 100%;
-  padding-top: 100%; /* 1:1 Aspect Ratio */
   background: #f8f9fa;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .gallery-image {
-  position: absolute;
-  top: 0;
-  left: 0;
   width: 100%;
-  height: 100%;
-  object-fit: contain; /* 改为 contain 以展示完整图片 */
+  height: auto;
+  display: block;
   transition: transform 0.3s;
 }
 

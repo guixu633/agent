@@ -106,7 +106,7 @@ func (s *Service) UploadImage(ctx context.Context, file io.Reader, filename stri
 
 // uploadThumbnail 生成并上传缩略图
 // 返回缩略图路径和 URL
-func (s *Service) uploadThumbnail(ctx context.Context, imageData []byte, filename string, workspace string) (string, string, error) {
+func (s *Service) uploadThumbnail(_ context.Context, imageData []byte, filename string, workspace string) (string, string, error) {
 	// 检测 MIME 类型
 	mimeType := s.detectMimeTypeFromFilename(filename)
 
@@ -179,6 +179,17 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 		return nil, fmt.Errorf("调用 Gemini API 失败: %w", err)
 	}
 
+	// 准备 LLM 交互详情（用于后续保存）- 暂时禁用
+	// llmDetail := map[string]interface{}{
+	// 	"request": map[string]interface{}{
+	// 		"prompt": req.Prompt,
+	// 		"images": req.Images,
+	// 		"config": config,
+	// 		// "contents": contents, // 包含具体的 prompt 和 image data (image data 可能会很大)
+	// 	},
+	// 	"response": resp,
+	// }
+
 	// 解析响应
 	result := &model.ImageGenerateResponse{
 		Parts: make([]model.GeneratePart, 0),
@@ -204,16 +215,18 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 	}
 
 	// 构建模型返回的对话历史（用于保存到数据库）
-	messageList := make([]map[string]string, 0)
-	// 存储待上传的图片数据（先收集所有 parts，再统一处理）
+	// 注意：目前只记录文本消息，图片消息的记录能力已预留（见 repository.Message 结构体）
+	messageList := make([]repository.Message, 0)
+	// 存储待上传的图片数据及其在 result.Parts 中的位置索引
 	type pendingImage struct {
-		data     []byte
-		mimeType string
-		part     *genai.Part
+		data           []byte
+		mimeType       string
+		resultPartsIdx int // 在 result.Parts 中的位置索引
+		// messageListIdx int // 预留：在 messageList 中的位置索引（如需记录图片消息时启用）
 	}
 	pendingImages := make([]pendingImage, 0)
 
-	// 第一遍：收集所有 parts 和构建 messageList
+	// 第一遍：遍历所有 parts，按原始顺序构建 messageList 和 result.Parts
 	for _, part := range resp.Candidates[0].Content.Parts {
 		// 1. 处理文本
 		if text := strings.TrimSpace(part.Text); text != "" {
@@ -221,24 +234,44 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 				Type: "text",
 				Text: text,
 			})
-			// 添加到对话历史
-			messageList = append(messageList, map[string]string{
-				"role":    "assistant",
-				"content": text,
+			// 添加到对话历史（只记录文本）
+			messageList = append(messageList, repository.Message{
+				Role:    "assistant",
+				Type:    "text",
+				Content: text,
 			})
 		}
 
-		// 2. 处理图片（先收集，稍后处理）
+		// 2. 处理图片：添加占位符到 result.Parts，记录索引
 		if part.InlineData != nil {
+			resultPartsIdx := len(result.Parts)
+
+			// 预留：如需记录图片消息到 messageList，取消以下注释
+			// messageListIdx := len(messageList)
+			// messageList = append(messageList, repository.Message{
+			// 	Role: "assistant",
+			// 	Type: "image",
+			// 	URL:  "", // 稍后填充
+			// })
+
+			// 添加占位符到 result.Parts
+			result.Parts = append(result.Parts, model.GeneratePart{
+				Type: "image",
+				Image: &model.GeneratedImage{
+					MimeType: part.InlineData.MIMEType,
+				},
+			})
+
 			pendingImages = append(pendingImages, pendingImage{
-				data:     part.InlineData.Data,
-				mimeType: part.InlineData.MIMEType,
-				part:     part,
+				data:           part.InlineData.Data,
+				mimeType:       part.InlineData.MIMEType,
+				resultPartsIdx: resultPartsIdx,
+				// messageListIdx: messageListIdx, // 预留
 			})
 		}
 	}
 
-	// 第二遍：处理所有图片并保存
+	// 第二遍：处理所有图片，上传到 OSS
 	for _, pending := range pendingImages {
 		imageData := pending.data
 		mimeType := pending.mimeType
@@ -264,8 +297,25 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 		// 获取访问 URL
 		url := s.ossClient.GetImageURL(path)
 
-		// 保存到数据库（使用模型返回的 messageList）
-		dbImage, err := s.imageRepo.Create(ctx, &repository.Image{
+		// 预留：如需记录图片消息到 messageList，取消以下注释
+		// messageList[pending.messageListIdx] = repository.Message{
+		// 	Role: "assistant",
+		// 	Type: "image",
+		// 	URL:  url,
+		// }
+
+		// 更新 result.Parts 中对应位置的内容
+		result.Parts[pending.resultPartsIdx] = model.GeneratePart{
+			Type: "image",
+			Image: &model.GeneratedImage{
+				MimeType: mimeType,
+				Path:     path,
+				URL:      url,
+			},
+		}
+
+		// 保存到数据库（目前 messageList 只包含文本消息）
+		_, err = s.imageRepo.Create(ctx, &repository.Image{
 			WorkspaceID:   ws.ID,
 			Name:          filename,
 			OSSPath:       path,
@@ -277,7 +327,7 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 			SourceType:    "generate",
 			Prompt:        req.Prompt,
 			RefImages:     req.Images,
-			MessageList:   messageList, // 使用模型返回的完整对话历史
+			MessageList:   messageList, // 目前只包含文本消息
 		})
 		if err != nil {
 			// 如果数据库保存失败，删除 OSS 文件（回滚）
@@ -287,20 +337,6 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 			}
 			return nil, fmt.Errorf("保存生成的图片记录到数据库失败: %w", err)
 		}
-
-		result.Parts = append(result.Parts, model.GeneratePart{
-			Type: "image",
-			Image: &model.GeneratedImage{
-				MimeType: mimeType,
-				Path:     dbImage.OSSPath,
-				URL:      dbImage.OSSUrl,
-			},
-		})
-		// 添加到对话历史（图片用路径表示）
-		messageList = append(messageList, map[string]string{
-			"role":    "assistant",
-			"content": fmt.Sprintf("[图片] %s", dbImage.OSSPath),
-		})
 	}
 
 	return result, nil
@@ -369,9 +405,39 @@ func (s *Service) ListWorkspaceImages(ctx context.Context, workspace string) (*m
 	}
 
 	// 转换为 model 格式
+	// 注意：Prompt, RefImages, MessageList 不在列表中返回，需要通过 GetImageDetail 接口获取
 	images := make([]model.ImageInfo, 0, len(dbImages))
 	for _, dbImage := range dbImages {
 		images = append(images, model.ImageInfo{
+			ID:           dbImage.ID,
+			Path:         dbImage.OSSPath,
+			URL:          dbImage.OSSUrl,
+			ThumbnailURL: dbImage.ThumbnailUrl,
+			Name:         dbImage.Name,
+			Size:         dbImage.Size,
+			Updated:      s.formatTime(dbImage.UpdatedAt),
+			SourceType:   dbImage.SourceType,
+		})
+	}
+
+	return &model.ListWorkspaceImagesResponse{
+		Images: images,
+	}, nil
+}
+
+// GetImageDetail 获取图片详情（包含 message_list）
+func (s *Service) GetImageDetail(ctx context.Context, id int64) (*model.GetImageDetailResponse, error) {
+	dbImage, err := s.imageRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("获取图片详情失败: %w", err)
+	}
+	if dbImage == nil {
+		return nil, fmt.Errorf("图片不存在")
+	}
+
+	return &model.GetImageDetailResponse{
+		Image: model.ImageInfo{
+			ID:           dbImage.ID,
 			Path:         dbImage.OSSPath,
 			URL:          dbImage.OSSUrl,
 			ThumbnailURL: dbImage.ThumbnailUrl,
@@ -381,13 +447,26 @@ func (s *Service) ListWorkspaceImages(ctx context.Context, workspace string) (*m
 			SourceType:   dbImage.SourceType,
 			Prompt:       dbImage.Prompt,
 			RefImages:    dbImage.RefImages,
-			MessageList:  dbImage.MessageList,
-		})
-	}
-
-	return &model.ListWorkspaceImagesResponse{
-		Images: images,
+			MessageList:  s.convertMessageList(dbImage.MessageList), // 详情接口返回 message_list
+		},
 	}, nil
+}
+
+// convertMessageList 将 repository.Message 列表转换为 model.Message 列表
+func (s *Service) convertMessageList(repoMessages []repository.Message) []model.Message {
+	if repoMessages == nil {
+		return nil
+	}
+	messages := make([]model.Message, len(repoMessages))
+	for i, m := range repoMessages {
+		messages[i] = model.Message{
+			Role:    m.Role,
+			Type:    model.MessageType(m.Type),
+			Content: m.Content,
+			URL:     m.URL,
+		}
+	}
+	return messages
 }
 
 // formatTime 格式化时间，修正时区问题
@@ -506,6 +585,7 @@ func (s *Service) RenameImage(ctx context.Context, req *model.RenameImageRequest
 
 	return &model.RenameImageResponse{
 		Image: model.ImageInfo{
+			ID:           updatedImage.ID,
 			Path:         updatedImage.OSSPath,
 			URL:          updatedImage.OSSUrl,
 			ThumbnailURL: updatedImage.ThumbnailUrl,
@@ -515,7 +595,7 @@ func (s *Service) RenameImage(ctx context.Context, req *model.RenameImageRequest
 			SourceType:   updatedImage.SourceType,
 			Prompt:       updatedImage.Prompt,
 			RefImages:    updatedImage.RefImages,
-			MessageList:  updatedImage.MessageList,
+			MessageList:  s.convertMessageList(updatedImage.MessageList),
 		},
 	}, nil
 }
