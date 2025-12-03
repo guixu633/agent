@@ -4,6 +4,7 @@ export interface ImageGenerateRequest {
   images?: string[]; // OSS 中的图片路径列表
   workspace?: string; // 工作区名称（可选，用于生成图片存储）
   messages?: Record<string, string>[]; // 完整的对话历史 (可选，用于记录)
+  enable_web_search?: boolean; // 是否启用联网搜索（默认 false）
 }
 
 // 图片上传响应

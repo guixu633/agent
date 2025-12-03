@@ -161,8 +161,20 @@ func (s *Service) GenerateImage(ctx context.Context, req *model.ImageGenerateReq
 		contents = append(contents, genai.NewContentFromBytes(imageData, mimeType, genai.RoleUser))
 	}
 
+	// 配置 Google Search Retrieval 工具（仅在启用联网搜索时添加）
+	var config *genai.GenerateContentConfig
+	if req.EnableWebSearch {
+		config = &genai.GenerateContentConfig{
+			Tools: []*genai.Tool{
+				{
+					GoogleSearch: &genai.GoogleSearch{},
+				},
+			},
+		}
+	}
+
 	// 调用 Gemini API
-	resp, err := s.genaiClient.Models.GenerateContent(ctx, DefaultModel, contents, nil)
+	resp, err := s.genaiClient.Models.GenerateContent(ctx, DefaultModel, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("调用 Gemini API 失败: %w", err)
 	}

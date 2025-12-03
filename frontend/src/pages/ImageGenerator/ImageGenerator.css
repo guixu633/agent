@@ -69,7 +69,7 @@ h1 {
 .prompt-textarea {
   width: 100%;
   padding: 0.75rem;
-  padding-right: 7rem; /* 为数量选择器和按钮留出空间 */
+  padding-right: 10.5rem; /* 为三个控件留出空间 */
   border: 2px solid #e0e0e0;
   border-radius: 8px;
   font-size: 1rem;
@@ -1830,4 +1830,48 @@ h1 {
     left: 0;
     width: 100%;
   }
+}
+
+.web-search-toggle {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 7rem; /* 在数量选择器左边 */
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 8px;
+  border: 2px solid #e0e0e0;
+  background-color: white;
+  color: #999;
+  user-select: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.web-search-toggle:hover:not(.disabled) {
+  border-color: #667eea;
+  background: #f8f9fa;
+  color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+}
+
+.web-search-toggle.active {
+  background: #f0f4ff;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.web-search-toggle.active:hover:not(.disabled) {
+  background: #e8edff;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+}
+
+.web-search-toggle.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

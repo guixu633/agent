@@ -1,6 +1,5 @@
 package model
 
-
 // ImageGenerateResponse 图片生成响应
 type ImageGenerateResponse struct {
 	Parts []GeneratePart `json:"parts"` // 有序的内容片段
@@ -15,10 +14,10 @@ type GeneratePart struct {
 
 // GeneratedImage 生成的图片信息
 type GeneratedImage struct {
-	Data     string `json:"data,omitempty"`     // Base64 编码的图片数据（可选，用于兼容）
-	MimeType string `json:"mimeType"`           // 图片 MIME 类型
-	Path     string `json:"path,omitempty"`     // OSS 中的图片路径
-	URL      string `json:"url,omitempty"`      // 图片访问 URL
+	Data     string `json:"data,omitempty"` // Base64 编码的图片数据（可选，用于兼容）
+	MimeType string `json:"mimeType"`       // 图片 MIME 类型
+	Path     string `json:"path,omitempty"` // OSS 中的图片路径
+	URL      string `json:"url,omitempty"`  // 图片访问 URL
 }
 
 // ImageUploadRequest 图片上传请求
@@ -34,10 +33,11 @@ type ImageUploadResponse struct {
 
 // ImageGenerateRequest 图片生成请求
 type ImageGenerateRequest struct {
-	Prompt    string              `json:"prompt" binding:"required"`
-	Images    []string            `json:"images"`              // OSS 中的图片路径列表
-	Workspace string              `json:"workspace"`           // 工作区名称（可选，用于生成图片存储）
-	Messages  []map[string]string `json:"messages,omitempty"`  // 完整的对话历史 (可选，用于记录)
+	Prompt          string              `json:"prompt" binding:"required"`
+	Images          []string            `json:"images"`             // OSS 中的图片路径列表
+	Workspace       string              `json:"workspace"`          // 工作区名称（可选，用于生成图片存储）
+	Messages        []map[string]string `json:"messages,omitempty"` // 完整的对话历史 (可选，用于记录)
+	EnableWebSearch bool                `json:"enable_web_search"`  // 是否启用联网搜索（默认 false）
 }
 
 // ListWorkspaceImagesRequest 列出工作区图片请求
@@ -73,7 +73,7 @@ type DeleteImageRequest struct {
 type RenameImageRequest struct {
 	Path      string `json:"path" binding:"required"`      // OSS 中的图片路径
 	NewName   string `json:"new_name" binding:"required"`  // 新文件名
-	Workspace string `json:"workspace" binding:"required"`  // 工作区名称
+	Workspace string `json:"workspace" binding:"required"` // 工作区名称
 }
 
 // RenameImageResponse 重命名图片响应

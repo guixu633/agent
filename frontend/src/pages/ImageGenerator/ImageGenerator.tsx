@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Edit, Trash2, RotateCcw, Settings, Send } from 'lucide-react';
+import { Edit, Trash2, RotateCcw, Settings, Send, Globe } from 'lucide-react';
 import { imageService } from '@/services/image/imageService';
 import { workspaceService } from '@/services/workspace/workspaceService';
 import type { ImageGenerateResponse, ImageInfo } from '@/types/image';
@@ -21,6 +21,7 @@ export function ImageGenerator() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageGenerateResponse | null>(null);
   const [generateCount, setGenerateCount] = useState(1); // 生成数量，默认1张，最多3张
+  const [enableWebSearch, setEnableWebSearch] = useState(false); // 是否启用联网搜索，默认不开启
   const [results, setResults] = useState<Array<{
     data: ImageGenerateResponse | null;
     status: 'pending' | 'generating' | 'success' | 'error';
@@ -635,6 +636,7 @@ export function ImageGenerator() {
             prompt: prompt.trim(),
             images: imagePaths.length > 0 ? imagePaths : undefined,
             workspace: currentWorkspace,
+            enable_web_search: enableWebSearch,
           });
 
           const itemElapsedTime = Math.floor((Date.now() - itemStartTime) / 1000);
@@ -1041,6 +1043,16 @@ export function ImageGenerator() {
                   </div>
                 )}
               </div>
+              {/* 启用联网搜索开关 */}
+              <button
+                type="button"
+                onClick={() => !loading && setEnableWebSearch(!enableWebSearch)}
+                disabled={loading}
+                className={`web-search-toggle ${enableWebSearch ? 'active' : ''} ${loading ? 'disabled' : ''}`}
+                title={enableWebSearch ? "已启用联网搜索" : "启用联网搜索"}
+              >
+                <Globe size={18} />
+              </button>
               <button
                 type="submit"
                 disabled={loading || !prompt.trim()}
