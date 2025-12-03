@@ -487,6 +487,7 @@ func (s *Service) formatTime(t time.Time) string {
 }
 
 // DeleteImage 删除图片（同时删除 OSS 文件和数据库记录）
+// 优先删除数据库记录后立即返回，OSS 文件异步删除
 func (s *Service) DeleteImage(ctx context.Context, path string) error {
 	// 从数据库获取图片信息
 	dbImage, err := s.imageRepo.GetByOSSPath(ctx, path)
@@ -497,22 +498,31 @@ func (s *Service) DeleteImage(ctx context.Context, path string) error {
 		return fmt.Errorf("图片记录不存在")
 	}
 
-	// 删除 OSS 中的原图
-	err = s.ossClient.DeleteImage(path)
-	if err != nil {
-		return fmt.Errorf("删除 OSS 图片失败: %w", err)
-	}
+	// 保存需要删除的 OSS 路径
+	ossPath := path
+	thumbnailPath := dbImage.ThumbnailPath
 
-	// 删除缩略图（如果存在）
-	if dbImage.ThumbnailPath != "" {
-		s.ossClient.DeleteImage(dbImage.ThumbnailPath)
-	}
-
-	// 删除数据库记录
+	// 优先删除数据库记录
 	err = s.imageRepo.Delete(ctx, dbImage.ID)
 	if err != nil {
 		return fmt.Errorf("删除图片记录失败: %w", err)
 	}
+
+	// 异步删除 OSS 文件（不阻塞返回）
+	go func() {
+		// 删除 OSS 中的原图
+		if err := s.ossClient.DeleteImage(ossPath); err != nil {
+			// 仅记录日志，不影响主流程
+			fmt.Printf("异步删除 OSS 图片失败 (path: %s): %v\n", ossPath, err)
+		}
+
+		// 删除缩略图（如果存在）
+		if thumbnailPath != "" {
+			if err := s.ossClient.DeleteImage(thumbnailPath); err != nil {
+				fmt.Printf("异步删除 OSS 缩略图失败 (path: %s): %v\n", thumbnailPath, err)
+			}
+		}
+	}()
 
 	return nil
 }
